@@ -1,0 +1,2 @@
+# PNG 源文件不进仓库（页面只加载 .webp）
+textures/*.png

@@ -1,0 +1,1966 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>石堆 · STONEPILE</title>
+<meta name="description" content="把话刻在石头上，扔在这里。没有账号，只有痕迹。">
+<meta name="theme-color" content="#0E0C0A">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta property="og:title" content="石堆 · STONEPILE">
+<meta property="og:description" content="把话刻在石头上，扔在这里。没有账号，只有痕迹。">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230E0C0A'/%3E%3Cpath d='M32 14 L46 30 L41 48 L23 48 L18 30 Z' fill='%237A6B58'/%3E%3Cpath d='M32 14 L46 30 L41 48 L32 48 Z' fill='%235C4E40'/%3E%3C/svg%3E">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.20.0/matter.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; overflow: hidden; background: #0E0C0A; }
+  body {
+    font-family: "PingFang SC", "Noto Sans SC", system-ui, sans-serif;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  canvas { display: block; position: absolute; top: 0; left: 0; }
+
+  /* Gate overlay — atmospheric threshold */
+  #gate {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: #0E0C0A;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    z-index: 100; gap: 0;
+    transition: opacity 1.2s ease;
+  }
+  #gate.hidden { opacity: 0; pointer-events: none; }
+  #gate .title {
+    color: #D4C8B0; font-size: 56px;
+    font-weight: 700; letter-spacing: 20px;
+    text-shadow: 0 1px 8px rgba(0,0,0,0.4);
+    margin-bottom: 6px;
+  }
+  #gate .subtitle {
+    color: #5A5044; font-size: 10px;
+    letter-spacing: 10px; font-weight: 400;
+    margin-bottom: 52px;
+  }
+  #gate .verse {
+    color: #B0A490; font-size: 24px;
+    text-align: center; line-height: 2.3;
+    max-width: 380px; font-weight: 400;
+    margin-bottom: 56px;
+  }
+  #gate .enter {
+    color: #6A5E50; font-size: 12px;
+    letter-spacing: 10px; cursor: pointer;
+    padding: 8px 0;
+    border-bottom: 1px solid #352E26;
+    transition: color 0.5s, border-color 0.5s;
+  }
+  #gate .enter:hover { color: #C4A878; border-color: #6A5A48; }
+  #gate .gate-dust {
+    position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none; z-index: 0; opacity: 0.6;
+  }
+  @media (max-width: 600px) {
+    #gate .title { font-size: 40px; letter-spacing: 14px; }
+    #gate .verse { font-size: 20px; max-width: 300px; }
+    #gate .enter { font-size: 11px; letter-spacing: 8px; }
+  }
+
+  /* Input bar — ghost writing on the ground, not a form */
+  #input-bar {
+    position: fixed; bottom: -120px; left: 0; right: 0;
+    display: flex; align-items: center; justify-content: center;
+    z-index: 50;
+    padding: 14px 32px 16px;
+    transition: bottom 0.65s cubic-bezier(0.16, 1, 0.3, 1), opacity 0.5s ease;
+    opacity: 0.55;
+  }
+  #input-bar.visible { bottom: 0; }
+  #input-bar:hover, #input-bar:focus-within { opacity: 1; }
+  #input-bar .ledge-inner {
+    display: flex; align-items: center; gap: 18px;
+    max-width: 480px; width: 100%;
+  }
+  #input-bar textarea {
+    background: none; border: none; outline: none;
+    color: #D4C8B0; font-size: 20px;
+    flex: 1; min-width: 0;
+    font-family: inherit; text-align: center;
+    caret-color: #C88A60;
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(90,75,60,0.25);
+    transition: border-color 0.4s;
+    resize: none;
+    line-height: 1.6;
+    overflow: hidden;
+    max-height: 160px;
+    text-shadow: 0 1px 10px rgba(0,0,0,0.85), 0 0 3px rgba(0,0,0,0.6);
+  }
+  #input-bar textarea:focus { border-bottom-color: #C88A60; }
+  #input-bar textarea::placeholder { color: #6A5E50; text-shadow: none; }
+  #input-bar .weight-dots {
+    color: #5A4E42; font-size: 14px;
+    min-width: 28px; text-align: center;
+    letter-spacing: 2px; transition: color 0.3s;
+  }
+  #input-bar .weight-dots.has-text { color: #8A7A62; }
+  #input-bar button {
+    background: none; border: none; border-bottom: 1px solid transparent;
+    color: #6A5A48; font-size: 12px;
+    cursor: pointer; padding: 8px 4px;
+    font-family: inherit; letter-spacing: 6px;
+    transition: color 0.3s, border-color 0.3s;
+  }
+  #input-bar button:hover { color: #C88A60; border-color: rgba(200,138,96,0.3); }
+  #input-bar button:disabled { color: #352E26; cursor: default; }
+
+  /* Ready indicator — a warm glow on the ground horizon */
+  #ready-indicator {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(to right, transparent, rgba(200, 138, 96, 0.6), transparent);
+    z-index: 49; opacity: 0;
+    transition: opacity 0.6s ease;
+    pointer-events: none;
+  }
+  #ready-indicator.show { opacity: 1; }
+  @keyframes pulse {
+    0%, 100% { opacity: 0.6; }
+    50% { opacity: 1; }
+  }
+
+  /* Stone count */
+  #stone-count {
+    position: fixed; top: 24px; right: 32px;
+    color: #5C554D; font-size: 13px; z-index: 50;
+    opacity: 0; transition: opacity 0.6s ease;
+    letter-spacing: 1px; cursor: pointer; user-select: none;
+  }
+  #stone-count.show { opacity: 0.7; }
+  #stone-count:hover { color: #C4653A; }
+
+  /* Clear confirm toast */
+  #clear-toast {
+    position: fixed; top: 24px; right: 32px;
+    background: rgba(22,18,14,0.95);
+    border: 1px solid #3A3530;
+    padding: 12px 20px;
+    color: #8A8478; font-size: 13px;
+    z-index: 60; opacity: 0;
+    transition: opacity 0.4s ease;
+    pointer-events: none;
+    display: flex; align-items: center; gap: 16px;
+  }
+  #clear-toast.show { opacity: 1; pointer-events: auto; }
+  #clear-toast button {
+    background: none; border: none;
+    color: #C4653A; font-size: 13px;
+    cursor: pointer; font-family: inherit;
+  }
+  #clear-toast button:last-child { color: #5C554D; }
+
+  /* Content panel — floating reading surface with physics */
+  .content-panel {
+    position: fixed;
+    padding: 28px 32px;
+    color: #C4B8A0;
+    font-size: 15px;
+    line-height: 1.9;
+    z-index: 55;
+    opacity: 0;
+    pointer-events: none;
+    cursor: grab;
+    transition: none;
+    will-change: transform, left, top;
+    max-width: 440px;
+    min-width: 220px;
+  }
+  .content-panel.active {
+    opacity: 1;
+    pointer-events: auto;
+  }
+  .content-panel.dragging { cursor: grabbing; }
+  .content-panel .panel-title {
+    font-size: 18px; font-weight: 600;
+    margin-bottom: 14px; letter-spacing: 3px;
+    padding-bottom: 12px;
+  }
+  .content-panel .panel-body {
+    max-height: 300px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(60,50,40,0.4) transparent;
+    line-height: 2;
+  }
+  .content-panel .panel-close {
+    position: absolute; top: 10px; right: 14px;
+    color: inherit; font-size: 16px; cursor: pointer;
+    pointer-events: auto; opacity: 0.35;
+    transition: opacity 0.2s;
+  }
+  .content-panel .panel-close:hover { opacity: 0.8; }
+  .content-panel .weight-hint {
+    margin-top: 14px; padding-top: 12px;
+    font-size: 11px; letter-spacing: 2px;
+  }
+  .content-panel .share-rub {
+    float: right; cursor: pointer;
+    opacity: 0.45; transition: opacity 0.25s;
+    letter-spacing: 0; padding: 0 2px;
+  }
+  .content-panel .share-rub:hover { opacity: 1; }
+  /* Heavy panel — dense, grounded, like a stone tablet */
+  .content-panel.heavy {
+    background: rgba(16, 12, 8, 0.98);
+    border: 1px solid rgba(80,60,40,0.5);
+    box-shadow: 0 16px 48px rgba(0,0,0,0.6), inset 0 1px 0 rgba(80,60,40,0.2);
+    color: #B0A088;
+    border-radius: 2px;
+  }
+  .content-panel.heavy .panel-title { color: #D4C8B0; border-bottom: 1px solid rgba(80,60,40,0.4); }
+  .content-panel.heavy .weight-hint { border-top: 1px solid rgba(60,40,28,0.25); color: #6A5A48; }
+  /* Light panel — airy, translucent, barely there */
+  .content-panel.light {
+    background: rgba(28, 24, 18, 0.6);
+    border: 1px solid rgba(80,70,55,0.25);
+    box-shadow: 0 2px 12px rgba(0,0,0,0.15);
+    color: #D4C8B0;
+    backdrop-filter: blur(6px);
+    border-radius: 1px;
+    max-width: 320px; min-width: 180px;
+  }
+  .content-panel.light .panel-title { color: #E8DDC8; border-bottom: 1px solid rgba(80,70,55,0.25); }
+  .content-panel.light .weight-hint { border-top: 1px solid rgba(40,35,28,0.3); color: #8A7E6A; }
+  /* Medium panel — balanced */
+  .content-panel.medium {
+    background: rgba(22, 18, 14, 0.94);
+    border: 1px solid rgba(60,50,40,0.35);
+    box-shadow: 0 8px 28px rgba(0,0,0,0.4);
+    color: #C0B498;
+    border-radius: 1px;
+  }
+  .content-panel.medium .panel-title { color: #D8CCB4; border-bottom: 1px solid rgba(60,50,40,0.3); }
+  .content-panel.medium .weight-hint { border-top: 1px solid rgba(40,32,24,0.25); color: #5C554D; }
+
+  /* Moss overlay on ground */
+  #moss-canvas {
+    position: absolute; bottom: 0; left: 0;
+    pointer-events: none; z-index: 5;
+  }
+
+  /* Vignette — frames the entire scene */
+  #vignette {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none; z-index: 58;
+    background: radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.35) 100%);
+    opacity: 0; transition: opacity 1.5s ease;
+  }
+  #vignette.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<div id="gate">
+  <canvas class="gate-dust" id="gate-dust"></canvas>
+  <div class="title">石 堆</div>
+  <div class="subtitle">S T O N E P I L E</div>
+  <div class="verse">这里什么都没有<br>只有前人扔下的石头<br>每个人，都可以留下一块</div>
+  <div class="enter" id="gate-enter">进 入</div>
+</div>
+
+<div id="stone-count">石头：0</div>
+<div id="clear-toast">
+  <span>清空所有石头？</span>
+  <button id="clear-yes">确认</button>
+  <button id="clear-no">取消</button>
+</div>
+
+<div id="input-bar">
+  <div class="ledge-inner">
+    <textarea id="stone-input" placeholder="刻字，然后拖拽投出" rows="1"></textarea>
+    <span class="weight-dots" id="weight-dots"></span>
+    <button id="throw-btn" disabled>投 石</button>
+  </div>
+</div>
+<div id="ready-indicator"></div>
+<div id="vignette"></div>
+
+<script>
+  const { Engine, Runner, Bodies, Body, Composite, Events, Vector } = Matter;
+
+  // ── State ──
+  const isDemo = new URLSearchParams(location.search).has('demo');
+  let stoneCount = 0;
+  let isActive = false;
+  let pendingThrow = null;
+  let throwOrigin = null;
+  let throwCurrent = null; // current mouse pos during drag
+
+  // ── Canvas & Engine ──
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+  document.body.appendChild(canvas);
+
+  const engine = Engine.create({
+    gravity: { x: 0, y: 1.8, scale: 0.001 }
+  });
+
+  // ── Ground — a shallow invisible bowl, so stones gather into a PILE ──
+  const groundY = canvas.height * 0.78;   // surface height at the far edges
+  const groundH = canvas.height * 0.22;
+  const bowlDepth = Math.min(canvas.height * 0.14, groundH * 0.62);
+  const bowlHalf = canvas.width * 0.23;   // narrow basin — the pile grows UP, not OUT
+
+  // The one true surface curve — physics and visuals both follow this.
+  // V-leaning basin: steep near the center so stones slide home, soft rim.
+  function groundSurfaceY(x) {
+    const t = Math.min(1, Math.abs(x - canvas.width / 2) / bowlHalf);
+    const u = 1 - t;
+    const dip = u * u * 0.65 + Math.cos(t * Math.PI * 0.5) * 0.35;
+    return groundY + dip * bowlDepth + Math.sin(x * 0.008) * 4;
+  }
+
+  // Build the bowl from angled static segments
+  (function buildGround() {
+    const SEGS = 15;
+    const pts = [];
+    for (let i = 0; i <= SEGS; i++) {
+      const x = -100 + (canvas.width + 200) * (i / SEGS);
+      pts.push({ x, y: groundSurfaceY(x) });
+    }
+    const thick = groundH + 120;
+    for (let i = 0; i < SEGS; i++) {
+      const a = pts[i], b = pts[i + 1];
+      const mx = (a.x + b.x) / 2, my = (a.y + b.y) / 2;
+      const len = Math.hypot(b.x - a.x, b.y - a.y) + 8;
+      const ang = Math.atan2(b.y - a.y, b.x - a.x);
+      const seg = Bodies.rectangle(mx, my + thick / 2 - 2, len, thick, {
+        isStatic: true, friction: 0.9, label: 'ground', angle: ang
+      });
+      Composite.add(engine.world, seg);
+    }
+  })();
+
+  // Side walls
+  const wallL = Bodies.rectangle(-50, canvas.height / 2, 100, canvas.height * 2, { isStatic: true, friction: 0.3, label: 'wall' });
+  const wallR = Bodies.rectangle(canvas.width + 50, canvas.height / 2, 100, canvas.height * 2, { isStatic: true, friction: 0.3, label: 'wall' });
+  Composite.add(engine.world, [wallL, wallR]);
+
+  // ── Ground crack lines (static, pre-generated) ──
+  let groundCracks = [];
+  function generateGroundCracks() {
+    groundCracks = [];
+    for (let i = 0; i < 12; i++) {
+      const sx = Math.random() * canvas.width;
+      const sy = groundSurfaceY(sx) + 2 + Math.random() * groundH * 0.25;
+      let cx = sx, cy = sy;
+      const segments = [];
+      const steps = 3 + Math.floor(Math.random() * 8);
+      for (let s = 0; s < steps; s++) {
+        cx += (Math.random() - 0.5) * 40;
+        cy += 6 + Math.random() * 18;
+        if (cy > groundY + groundH - 5) break;
+        segments.push({ x: cx, y: cy });
+      }
+      if (segments.length > 1) groundCracks.push(segments);
+    }
+  }
+  generateGroundCracks();
+
+  function spawnCrack(x, y) {
+    // Dynamic crack radiating from impact point
+    const segs = [{ x, y: Math.max(y - 2, groundY + 1) }];
+    const branches = 2 + Math.floor(Math.random() * 3);
+    for (let b = 0; b < branches; b++) {
+      let bx = x, by = Math.max(y - 2, groundY + 1);
+      const steps = 2 + Math.floor(Math.random() * 4);
+      const angle = (Math.random() - 0.5) * Math.PI * 0.5 + Math.PI / 2;
+      for (let s = 0; s < steps; s++) {
+        bx += Math.cos(angle) * (8 + Math.random() * 16);
+        by += Math.sin(angle) * (6 + Math.random() * 12);
+        if (by > groundY + groundH - 2) break;
+        segs.push({ x: bx, y: by });
+      }
+    }
+    if (segs.length > 1) {
+      groundCracks.push(segs);
+      if (groundCracks.length > 40) groundCracks.shift();
+    }
+  }
+
+  // ── Ambient dust particles ──
+  let dustParticles = [];
+  const DUST_COUNT = 80;
+  for (let i = 0; i < DUST_COUNT; i++) {
+    dustParticles.push({
+      x: Math.random() * canvas.width,
+      y: Math.random() * canvas.height,
+      r: 0.8 + Math.random() * 2,
+      vx: (Math.random() - 0.5) * 0.15,
+      vy: -(0.05 + Math.random() * 0.2),
+      opacity: 0.15 + Math.random() * 0.25
+    });
+  }
+
+  function updateDust() {
+    for (const p of dustParticles) {
+      p.x += p.vx;
+      p.y += p.vy;
+      if (p.x < -20) p.x = canvas.width + 20;
+      if (p.x > canvas.width + 20) p.x = -20;
+      if (p.y < -20) p.y = canvas.height + 20;
+      if (p.y > canvas.height + 20) p.y = -20;
+    }
+  }
+
+  // ── Impact dust burst ──
+  let burstParticles = [];
+  function spawnBurst(x, y, count) {
+    for (let i = 0; i < count; i++) {
+      const angle = Math.random() * Math.PI * 2;
+      const speed = 0.5 + Math.random() * 2.5;
+      burstParticles.push({
+        x, y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed - 0.8,
+        r: 1 + Math.random() * 2,
+        life: 1,
+        decay: 0.015 + Math.random() * 0.025
+      });
+    }
+  }
+  function updateBurst() {
+    for (let i = burstParticles.length - 1; i >= 0; i--) {
+      const p = burstParticles[i];
+      p.x += p.vx;
+      p.y += p.vy;
+      p.vy += 0.02;
+      p.life -= p.decay;
+      if (p.life <= 0) burstParticles.splice(i, 1);
+    }
+  }
+
+  // ── Ground trail wear ("hot paths get polished") ──
+  let trailMarks = [];
+  const MAX_TRAIL = 400;
+  function addTrailMark(x, y) {
+    // Only on ground area
+    if (y < groundY - 10) return;
+    // Bright, warm marks that show up on dark ground
+    trailMarks.push({ x, y, r: 12 + Math.random() * 24, opacity: 0.25 + Math.random() * 0.25, age: 0 });
+    if (trailMarks.length > MAX_TRAIL) trailMarks.shift();
+  }
+
+  // ── Moss growth (unvisited corners grow moss — subtle, sparse) ──
+  const MOSS_GRID_W = 14;
+  const MOSS_GRID_H = 5;
+  let mossGrid = [];
+  function initMossGrid() {
+    mossGrid = [];
+    const cellW = canvas.width / MOSS_GRID_W;
+    const cellH = groundH / MOSS_GRID_H;
+    for (let gy = 0; gy < MOSS_GRID_H; gy++) {
+      for (let gx = 0; gx < MOSS_GRID_W; gx++) {
+        const cx = gx * cellW + cellW / 2;
+        mossGrid.push({
+          gx, gy,
+          x: cx,
+          y: Math.min(groundSurfaceY(cx) + gy * cellH + cellH / 2, canvas.height - cellH * 0.5),
+          lastVisit: Date.now(),
+          mossLevel: 0,
+          // Small, organic moss blob
+          blobR: cellW * (0.15 + Math.random() * 0.2),
+          blobOffsetX: (Math.random() - 0.5) * cellW * 0.5,
+          blobOffsetY: (Math.random() - 0.5) * cellH * 0.4
+        });
+      }
+    }
+  }
+  initMossGrid();
+
+  function updateMossAndTrails() {
+    const now = Date.now();
+    // Moss grows very slowly — subtle presence, not a green carpet
+    for (const cell of mossGrid) {
+      const timeSinceVisit = (now - cell.lastVisit) / 1000;
+      if (timeSinceVisit > 15) {
+        cell.mossLevel = Math.min(0.3, cell.mossLevel + 0.0002);
+      }
+    }
+    // Fade old trail marks
+    for (let i = trailMarks.length - 1; i >= 0; i--) {
+      trailMarks[i].age++;
+      if (trailMarks[i].age > 800) trailMarks.splice(i, 1);
+    }
+  }
+
+  function markMossVisited(x, y) {
+    for (const cell of mossGrid) {
+      const dx = cell.x - x;
+      const dy = cell.y - y;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dist < 80) {
+        cell.lastVisit = Date.now();
+        cell.mossLevel = Math.max(0, cell.mossLevel - 0.2);
+      }
+    }
+  }
+  const MAX_WEAR = 80;
+  let wearMarks = [];
+  function addWearMark(x, y, r) {
+    wearMarks.push({ x, y: Math.min(y, groundY - 4), r: r * 0.7, opacity: 0.5 });
+    if (wearMarks.length > MAX_WEAR) wearMarks.shift();
+  }
+
+  // ── Stone textures (real photographic texture, loaded async) ──
+  const stoneTextures = {};
+  ['basalt','sandstone','granite','limestone'].forEach(name => {
+    const img = new Image();
+    img.src = 'textures/' + name + '.webp';
+    stoneTextures[name] = img;
+  });
+
+  // Map stone color → texture type (dark=basalt, warm=sandstone, pale=limestone, else granite)
+  function textureForColor(hex) {
+    const c = parseColor(hex);
+    const lum = (c.r * 0.299 + c.g * 0.587 + c.b * 0.114) / 255;
+    const warmth = (c.r - c.b) / 255;
+    if (lum < 0.42) return 'basalt';
+    if (lum > 0.75) return warmth > 0.12 ? 'limestone' : 'granite';
+    if (warmth > 0.15) return 'sandstone';
+    return 'granite';
+  }
+
+  // ── Stones ──
+  let stones = [];
+  let restocking = false; // true while saved stones are dropping back in
+  const MAX_STONES = 20;
+
+  // Content weight mapping: short text = light, long text = heavy
+  function computeWeight(text) {
+    const len = text.length;
+    if (len <= 2) return 0.3;      // Very light
+    if (len <= 6) return 0.6;      // Light
+    if (len <= 20) return 1.0;     // Medium
+    if (len <= 60) return 1.6;     // Heavy
+    return 2.2;                     // Very heavy
+  }
+
+  // ── The earth takes back what it has held long enough ──
+  let sinkingStones = [];
+
+  function cullOldStones() {
+    if (stones.length <= MAX_STONES) return;
+    const excess = stones.length - MAX_STONES;
+    for (let i = 0; i < excess; i++) {
+      const old = stones.shift();
+      sinkStone(old);
+    }
+    stoneCount = stones.length;
+    updateStoneCount();
+    saveStones();
+  }
+
+  // An old stone doesn't vanish — it sinks back into the ground
+  function sinkStone(stone) {
+    Body.setStatic(stone.body, true);  // forces no longer apply
+    stone.body.isSensor = true;         // the ground lets it pass
+    sinkingStones.push({ stone, progress: 0 });
+    spawnBurst(stone.body.position.x, groundSurfaceY(stone.body.position.x), 8);
+    if (audioCtx) playStoneImpact(0.55, 2.2, false); // a low earthen farewell
+  }
+
+  function updateSinking() {
+    for (let i = sinkingStones.length - 1; i >= 0; i--) {
+      const sk = sinkingStones[i];
+      sk.progress += 0.007; // ~2.4s to fully return
+      const b = sk.stone.body;
+      Body.setPosition(b, { x: b.position.x, y: b.position.y + 0.55 });
+      if (sk.progress >= 1) {
+        Composite.remove(engine.world, b);
+        leaveGraveMoss(b.position.x);
+        sinkingStones.splice(i, 1);
+      }
+    }
+  }
+
+  // Where a stone returned, moss grows richer than nature allows
+  function leaveGraveMoss(x) {
+    let best = null, bestD = Infinity;
+    for (const cell of mossGrid) {
+      const d = Math.abs(cell.x - x);
+      if (d < bestD) { bestD = d; best = cell; }
+    }
+    if (best) best.mossLevel = 0.5;
+  }
+
+  function createStoneBody(x, y, radius, weight) {
+    try {
+      const sides = 4 + Math.floor(Math.random() * 6);
+      const points = [];
+      for (let i = 0; i < sides; i++) {
+        const angle = (i / sides) * Math.PI * 2 - Math.PI / 2;
+        const variation = 0.7 + Math.random() * 0.55;
+        points.push({ x: Math.cos(angle) * radius * variation, y: Math.sin(angle) * radius * variation });
+      }
+      const density = 0.003 + weight * 0.004;
+      const friction = 0.6 + weight * 0.25;
+      const body = Bodies.fromVertices(x, y, [points], {
+        friction: Math.min(friction, 1.1),
+        restitution: 0.03 + (1 - weight) * 0.06,
+        density: density,
+        label: 'stone'
+      });
+      // Ensure body position matches requested position
+      Body.setPosition(body, { x, y });
+      Body.setVelocity(body, { x: (Math.random() - 0.5) * 0.5, y: (Math.random() - 0.5) * 0.3 });
+      return body;
+    } catch (e) {
+      // Fallback: use simple circle body
+      const body = Bodies.circle(x, y, radius, {
+        friction: 0.8, restitution: 0.05, density: 0.005, label: 'stone'
+      });
+      Body.setVelocity(body, { x: (Math.random() - 0.5) * 0.5, y: (Math.random() - 0.5) * 0.3 });
+      return body;
+    }
+  }
+
+  // Stones are substantial — big enough that a handful of them MUST stack
+  function computeRadius(len, weight) {
+    return Math.min(30 + len * 6.5 + weight * 22 + Math.random() * 10, 92);
+  }
+
+  function addStone(text, x, y, vx, vy, av, fullContent) {
+    const content = fullContent || text;
+    const weight = computeWeight(content);
+    // Stone surface text: first few chars, newlines stripped
+    const flatText = text.replace(/\s+/g, '');
+    const displayLen = Math.max(1, Math.min(6, Math.floor(2 + weight * 2.5)));
+    const displayText = flatText.slice(0, displayLen);
+    const len = displayText.length;
+    // Radius grows with weight — heavy stones are bigger
+    const radius = computeRadius(len, weight);
+    const body = createStoneBody(x ?? canvas.width / 2 + (Math.random() - 0.5) * 160, y ?? 60, radius, weight);
+    if (vx !== undefined) {
+      Body.setVelocity(body, { x: vx, y: vy || 0.2 });
+      Body.setAngularVelocity(body, av || -vx * 0.03);
+    }
+
+    const stone = {
+      body, text: displayText, content, radius, weight,
+      color: randomStoneColor(),
+      createdAt: Date.now(), readAt: null,
+      chiselOffsets: null
+    };
+    stone.chiselOffsets = [];
+    for (let i = 0; i < displayText.length; i++) {
+      stone.chiselOffsets.push({ x: (Math.random() - 0.5) * 2, y: (Math.random() - 0.5) * 2 });
+    }
+
+    stones.push(stone);
+    Composite.add(engine.world, body);
+    stoneCount++;
+    updateStoneCount();
+    saveStones();
+    cullOldStones();
+    return stone;
+  }
+
+  function randomStoneColor() {
+    // A natural river-pile mix: ~1/3 dark basalt, ~1/3 warm sandstone, ~1/3 pale limestone
+    const palette = [
+      // dark basalt & wet granite
+      '#4A4238','#5C5348','#3E3830','#6B6154','#57504A',
+      // warm sandstone
+      '#B89A7A','#C4956A','#A07858','#8A7560','#C4A882','#D4B896',
+      // pale limestone
+      '#E8D8C0','#D8CDB8','#CFC4AE','#DDD2BE','#C8BFAE'
+    ];
+    return palette[Math.floor(Math.random() * palette.length)];
+  }
+
+  function updateStoneCount() {
+    document.getElementById('stone-count').textContent = `石头：${stoneCount}`;
+  }
+
+  // ── Procedural stone audio (Web Audio — no files, no UI) ──
+  let audioCtx = null;
+  function ensureAudio() {
+    if (!audioCtx) {
+      try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return null; }
+    }
+    if (audioCtx.state === 'suspended') audioCtx.resume();
+    return audioCtx;
+  }
+
+  // Stone impact: noise burst through lowpass + low sine thump
+  // intensity = collision speed, weight = stone weight (heavy = deep & dull)
+  function playStoneImpact(intensity, weight, isStoneOnStone) {
+    const ac = ensureAudio();
+    if (!ac) return;
+    const t = ac.currentTime;
+    const vol = Math.min(0.5, intensity * 0.055);
+    if (vol < 0.02) return; // Too quiet to matter
+
+    // ── Noise burst (the impact crack) ──
+    const dur = isStoneOnStone ? 0.05 : 0.09 + weight * 0.05;
+    const len = Math.floor(ac.sampleRate * dur);
+    const buffer = ac.createBuffer(1, len, ac.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < len; i++) {
+      data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, isStoneOnStone ? 3.5 : 2.5);
+    }
+    const noise = ac.createBufferSource();
+    noise.buffer = buffer;
+    const noiseFilter = ac.createBiquadFilter();
+    noiseFilter.type = 'lowpass';
+    // Stone-on-stone is sharper; heavy stones are duller
+    noiseFilter.frequency.value = isStoneOnStone ? 2600 : 1900 - weight * 450;
+    const noiseGain = ac.createGain();
+    noiseGain.gain.setValueAtTime(vol, t);
+    noiseGain.gain.exponentialRampToValueAtTime(0.001, t + dur);
+    noise.connect(noiseFilter);
+    noiseFilter.connect(noiseGain);
+    noiseGain.connect(ac.destination);
+    noise.start(t);
+
+    // ── Low thump (body of the sound) — only for ground hits and heavier stones ──
+    if (!isStoneOnStone || weight > 0.8) {
+      const osc = ac.createOscillator();
+      osc.type = 'sine';
+      osc.frequency.setValueAtTime(130 - weight * 45, t);
+      osc.frequency.exponentialRampToValueAtTime(42, t + 0.1);
+      const oscGain = ac.createGain();
+      oscGain.gain.setValueAtTime(vol * 1.1, t);
+      oscGain.gain.exponentialRampToValueAtTime(0.001, t + 0.13 + weight * 0.05);
+      osc.connect(oscGain);
+      oscGain.connect(ac.destination);
+      osc.start(t);
+      osc.stop(t + 0.25);
+    }
+  }
+
+  // ── Collision → wear + vibration + burst ──
+  Events.on(engine, 'collisionStart', (event) => {
+    for (const pair of event.pairs) {
+      const a = pair.bodyA, b = pair.bodyB;
+
+      // Stone hitting ground
+      let stoneBody = null;
+      if (a.label === 'stone' && b.label === 'ground') stoneBody = a;
+      if (b.label === 'stone' && a.label === 'ground') stoneBody = b;
+      if (stoneBody) {
+        const speed = Math.sqrt(stoneBody.velocity.x ** 2 + stoneBody.velocity.y ** 2);
+        if (speed > 1.5) {
+          const stone = stones.find(s => s.body === stoneBody);
+          if (stone) {
+            addWearMark(stoneBody.position.x, stoneBody.position.y, stone.radius * (0.5 + speed * 0.1));
+            spawnBurst(stoneBody.position.x, Math.min(stoneBody.position.y, groundY), Math.floor(speed * 4));
+            spawnCrack(stoneBody.position.x, Math.min(stoneBody.position.y + 2, groundY + groundH - 5));
+            markMossVisited(stoneBody.position.x, stoneBody.position.y);
+            playStoneImpact(speed, stone.weight || 0.6, false);
+            if (navigator.vibrate) navigator.vibrate(Math.min(30, Math.floor(speed * 5)));
+          }
+        }
+        continue;
+      }
+
+      // Stone hitting stone
+      if (a.label === 'stone' && b.label === 'stone') {
+        const speedA = Math.sqrt(a.velocity.x ** 2 + a.velocity.y ** 2);
+        const speedB = Math.sqrt(b.velocity.x ** 2 + b.velocity.y ** 2);
+        const speed = Math.max(speedA, speedB);
+        if (speed > 2) {
+          const cx = (a.position.x + b.position.x) / 2;
+          const cy = (a.position.y + b.position.y) / 2;
+          spawnBurst(cx, cy, Math.floor(speed * 4));
+          markMossVisited(cx, cy);
+          // Stone-on-stone: use the heavier stone's weight for tone
+          const stoneA = stones.find(s => s.body === a);
+          const stoneB = stones.find(s => s.body === b);
+          const w = Math.max(stoneA ? stoneA.weight : 0.6, stoneB ? stoneB.weight : 0.6);
+          playStoneImpact(speed, w, true);
+          if (navigator.vibrate) navigator.vibrate(Math.min(20, Math.floor(speed * 3)));
+        }
+      }
+    }
+  });
+
+  // ── Render ──
+  let currentStoneFade = 1; // 1 for normal stones; sinking stones fade out
+  let currentDaylight = 0;  // 0 at night → 0.6 at noon; dims night-light effects
+  function drawStone(ctx, stone, body) {
+    const { x, y } = body.position;
+    const angle = body.angle;
+    const r = stone.radius;
+    const verts = body.vertices;
+
+    const age = (Date.now() - stone.createdAt) / 1000;
+    // Weathering accrues over days — fresh stones look fresh, week-old stones are visibly grey
+    const weathering = Math.min(0.7, age / 86400);
+    const stoneColor = weatherColor(stone.color, weathering);
+
+    // Parse base color — handles both hex and rgb() formats
+    const pc = parseColor(stoneColor);
+    const baseR = pc.r, baseG = pc.g, baseB = pc.b;
+
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+
+    // Stone silhouette path
+    ctx.beginPath();
+    ctx.moveTo(verts[0].x - x, verts[0].y - y);
+    for (let j = 1; j < verts.length; j++) ctx.lineTo(verts[j].x - x, verts[j].y - y);
+    ctx.closePath();
+
+    // ── Cast shadow on ground (offset toward bottom-left, away from moon) ──
+    ctx.shadowColor = 'rgba(0,0,0,0.55)';
+    ctx.shadowBlur = 16 + weathering * 8;
+    ctx.shadowOffsetX = -4 - weathering * 2;
+    ctx.shadowOffsetY = 6 + weathering * 3;
+
+    // ── Base fill — directional radial gradient (light from upper-right) ──
+    // Light source: moon at upper-right of screen → highlight on upper-right of stone
+    const lightX = r * 0.35;  // offset toward upper-right
+    const lightY = -r * 0.4;
+    const volGrad = ctx.createRadialGradient(lightX, lightY, r * 0.05, 0, 0, r * 1.3);
+    volGrad.addColorStop(0, `rgb(${Math.min(255, baseR + 35)},${Math.min(255, baseG + 30)},${Math.min(255, baseB + 22)})`);
+    volGrad.addColorStop(0.35, stoneColor);
+    volGrad.addColorStop(0.7, `rgb(${Math.floor(baseR * 0.72)},${Math.floor(baseG * 0.72)},${Math.floor(baseB * 0.72)})`);
+    volGrad.addColorStop(1, `rgb(${Math.floor(baseR * 0.48)},${Math.floor(baseG * 0.48)},${Math.floor(baseB * 0.48)})`);
+    ctx.fillStyle = volGrad;
+    ctx.fill();
+
+    ctx.shadowColor = 'transparent';
+
+    // ── Real texture + inner shading (clipped to stone shape) ──
+    ctx.save();
+    ctx.clip();
+
+    // Photographic stone texture — overlay mode keeps base color, adds real grain
+    const texName = textureForColor(stone.color);
+    const tex = stoneTextures[texName];
+    if (tex && tex.complete && tex.naturalWidth > 0) {
+      // Sample different region per stone so no two look identical
+      const seed1 = ((stone.createdAt % 1000) / 1000);
+      const seed2 = (((stone.createdAt * 7919) % 1000) / 1000);
+      const srcSize = 360;
+      const sx = seed1 * (tex.naturalWidth - srcSize);
+      const sy = seed2 * (tex.naturalHeight - srcSize);
+      ctx.globalCompositeOperation = 'overlay';
+      ctx.globalAlpha = 0.9 * currentStoneFade;
+      ctx.drawImage(tex, sx, sy, srcSize, srcSize, -r * 1.5, -r * 1.5, r * 3, r * 3);
+      ctx.globalAlpha = currentStoneFade;
+      ctx.globalCompositeOperation = 'source-over';
+    }
+
+    // Inner shadow at bottom (grounding)
+    const innerShadow = ctx.createLinearGradient(0, r * 0.3, 0, r * 1.2);
+    innerShadow.addColorStop(0, 'rgba(0,0,0,0)');
+    innerShadow.addColorStop(1, `rgba(0,0,0,${0.22 - weathering * 0.08})`);
+    ctx.fillStyle = innerShadow;
+    ctx.fillRect(-r * 1.5, -r * 1.5, r * 3, r * 3);
+
+    // Weathering — grey veil over old stones
+    if (weathering > 0.05) {
+      ctx.fillStyle = `rgba(138,132,122,${weathering * 0.3})`;
+      ctx.fillRect(-r * 1.5, -r * 1.5, r * 3, r * 3);
+    }
+    ctx.restore();
+
+    // ── Edge ──
+    ctx.strokeStyle = `rgba(0,0,0,${0.18 - weathering * 0.1})`;
+    ctx.lineWidth = 1.2 - weathering * 0.6;
+    ctx.stroke();
+
+    // ── Rim light — upper-right edge (facing moon) ──
+    ctx.beginPath();
+    ctx.moveTo(verts[0].x - x, verts[0].y - y);
+    const rimCount = Math.ceil(verts.length * 0.55);
+    for (let j = 1; j <= rimCount; j++) {
+      ctx.lineTo(verts[j].x - x, verts[j].y - y);
+    }
+    ctx.strokeStyle = `rgba(255,240,210,${(0.14 - weathering * 0.08) * (1 - currentDaylight * 0.55)})`;
+    ctx.lineWidth = 2 - weathering;
+    ctx.stroke();
+
+    // ── Carved text — etched with directional light ──
+    // Scale with the stone, but keep the inscription within the face
+    const charCount = Math.max(1, stone.text.length);
+    const fontSize = Math.max(14, Math.min(r * 0.55, (r * 1.5) / charCount, 34));
+    ctx.rotate(-angle);
+    ctx.font = `600 ${fontSize}px "PingFang SC", "Noto Sans SC", system-ui`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+
+    // Carved text glows at night; daylight flattens it into the grain
+    const textFade = (1 - weathering * 0.35) * (1 - currentDaylight * 0.4);
+
+    // Deep shadow (bottom-left, away from moon)
+    ctx.fillStyle = `rgba(0,0,0,${0.4 * textFade})`;
+    ctx.fillText(stone.text, -1, 1);
+
+    // Highlight (top-right, facing moon)
+    ctx.fillStyle = `rgba(255,245,220,${0.15 * textFade})`;
+    ctx.fillText(stone.text, 0.8, -0.8);
+
+    // Main text
+    if (stone.chiselOffsets) {
+      const charWidth = ctx.measureText(stone.text).width / stone.text.length;
+      let cx = -(charWidth * (stone.text.length - 1)) / 2;
+      for (let i = 0; i < stone.text.length; i++) {
+        const off = stone.chiselOffsets[i];
+        const char = stone.text[i];
+        ctx.fillStyle = `rgba(255,248,235,${textFade})`;
+        ctx.fillText(char, cx + off.x, off.y);
+        cx += charWidth;
+      }
+    } else {
+      ctx.fillStyle = `rgba(255,248,235,${textFade})`;
+      ctx.fillText(stone.text, 0, 0);
+    }
+
+    ctx.restore();
+  }
+
+  function lightenColor(color, amount) {
+    const c = parseColor(color);
+    return `rgb(${Math.min(255, Math.floor(c.r + (255-c.r)*amount))},${Math.min(255, Math.floor(c.g + (255-c.g)*amount))},${Math.min(255, Math.floor(c.b + (255-c.b)*amount))})`;
+  }
+
+  // Universal color parser — handles #RRGGBB and rgb()/rgba()
+  function parseColor(color) {
+    if (color.startsWith('#')) {
+      return {
+        r: parseInt(color.slice(1,3), 16),
+        g: parseInt(color.slice(3,5), 16),
+        b: parseInt(color.slice(5,7), 16)
+      };
+    }
+    const m = color.match(/[\d.]+/g);
+    if (!m || m.length < 3) return { r: 128, g: 120, b: 110 };
+    return { r: parseInt(m[0]), g: parseInt(m[1]), b: parseInt(m[2]) };
+  }
+
+  // ── Daylight cycle — the world breathes with real time ──
+  function lerpHex(h1, h2, t) {
+    const a = parseColor(h1), b = parseColor(h2);
+    return `rgb(${Math.round(a.r + (b.r - a.r) * t)},${Math.round(a.g + (b.g - a.g) * t)},${Math.round(a.b + (b.b - a.b) * t)})`;
+  }
+
+  // Keyframes: night → dawn → overcast day → dusk → night.
+  // Day is deliberately muted — this place never sees harsh sun.
+  const DAY_KEYFRAMES = [
+    { h: 0,    // deep night — the site's resting face
+      sky: ['#1a1512','#161310','#12100d','#14100c','#1e1712','#2e2218'],
+      glow: [140,100,60],  glowA: 0.12, star: 1,    moon: 1,    sun: 0,    mtn: 1,    fog: 1,    ground: 0 },
+    { h: 6,    // dawn — cold grey-blue, morning mist
+      sky: ['#252c38','#262b33','#282d33','#36383a','#4c4844','#6e6459'],
+      glow: [190,175,160], glowA: 0.16, star: 0,    moon: 0.25, sun: 0,    mtn: 1.55, fog: 1.5,  ground: 0.35 },
+    { h: 12,   // overcast day — bright but never cheerful
+      sky: ['#3c434c','#3f454c','#43484d','#56554f','#70685c','#8a7c6a'],
+      glow: [215,205,185], glowA: 0.10, star: 0,    moon: 0.15, sun: 1,    mtn: 1.9,  fog: 0.8,  ground: 0.6 },
+    { h: 18.5, // dusk — amber band on the horizon
+      sky: ['#251c24','#27201f','#2c211d','#402721','#603523','#82492a'],
+      glow: [235,150,80],  glowA: 0.26, star: 0.35, moon: 0.6,  sun: 0.2,  mtn: 1.15, fog: 1.15, ground: 0.15 },
+  ];
+
+  function daylight() {
+    const now = new Date();
+    const h = now.getHours() + now.getMinutes() / 60;
+    const K = DAY_KEYFRAMES;
+    let i = 0;
+    while (i < K.length - 1 && h >= K[i + 1].h) i++;
+    const a = K[i], b = K[(i + 1) % K.length];
+    const span = (i === K.length - 1) ? (24 - a.h + b.h) : (b.h - a.h);
+    let t = (i === K.length - 1) ? ((h - a.h + 24) % 24) / span : (h - a.h) / span;
+    t = Math.min(1, Math.max(0, t));
+    t = t * t * (3 - 2 * t); // smoothstep — light never jumps
+    const L = (x, y) => x + (y - x) * t;
+    return {
+      sky: a.sky.map((c, j) => lerpHex(c, b.sky[j], t)),
+      glow: a.glow.map((c, j) => Math.round(L(c, b.glow[j]))),
+      glowA: L(a.glowA, b.glowA), star: L(a.star, b.star),
+      moon: L(a.moon, b.moon), sun: L(a.sun, b.sun),
+      mtn: L(a.mtn, b.mtn), fog: L(a.fog, b.fog), ground: L(a.ground, b.ground)
+    };
+  }
+
+  function darkenColor(color, amount) {
+    const c = parseColor(color);
+    const f = 1 - amount;
+    return `rgb(${Math.floor(c.r*f)},${Math.floor(c.g*f)},${Math.floor(c.b*f)})`;
+  }
+
+  function weatherColor(hex, amount) {
+    // Blend toward gray as stone weathers
+    const r = parseInt(hex.slice(1,3), 16);
+    const g = parseInt(hex.slice(3,5), 16);
+    const b = parseInt(hex.slice(5,7), 16);
+    const gray = 140;
+    const f = 1 - amount;
+    return `rgb(${Math.floor(r*f + gray*amount)},${Math.floor(g*f + gray*amount)},${Math.floor(b*f + gray*amount)})`;
+  }
+
+  function drawWearMarks(ctx) {
+    for (const mark of wearMarks) {
+      const grad = ctx.createRadialGradient(mark.x, mark.y, 0, mark.x, mark.y, mark.r);
+      grad.addColorStop(0, `rgba(14,12,10,${mark.opacity * 1.5})`);
+      grad.addColorStop(0.6, `rgba(14,12,10,${mark.opacity})`);
+      grad.addColorStop(1, 'rgba(14,12,10,0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(mark.x, mark.y, mark.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+  }
+
+  function drawGroundCracks(ctx) {
+    for (const segs of groundCracks) {
+      // Shadow pass for depth
+      ctx.strokeStyle = 'rgba(0,0,0,0.32)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(segs[0].x + 1, segs[0].y + 1);
+      for (let i = 1; i < segs.length; i++) ctx.lineTo(segs[i].x + 1, segs[i].y + 1);
+      ctx.stroke();
+      // Light pass — a whisper, not a scratch
+      ctx.strokeStyle = 'rgba(190,165,135,0.22)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(segs[0].x, segs[0].y);
+      for (let i = 1; i < segs.length; i++) ctx.lineTo(segs[i].x, segs[i].y);
+      ctx.stroke();
+    }
+  }
+
+  function drawTrajectory(ctx) {
+    if (!throwOrigin || !throwCurrent || !pendingThrow) return;
+    const dx = throwCurrent.x - throwOrigin.x;
+    const dy = throwCurrent.y - throwOrigin.y;
+    if (Math.abs(dx) < 3 && Math.abs(dy) < 3) return;
+
+    const vx = dx * 0.15;
+    const vy = dy * 0.08;
+    const g = 0.5;
+
+    ctx.strokeStyle = 'rgba(242,239,232,0.75)';
+    ctx.setLineDash([8, 5]);
+    ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    ctx.moveTo(throwOrigin.x, 40);
+    let tx = throwOrigin.x, ty = 40;
+    for (let t = 0; t < 30; t++) {
+      const step = t * 1.2;
+      tx = throwOrigin.x + vx * step;
+      ty = 40 + vy * step + 0.5 * g * step * step;
+      if (ty > groundSurfaceY(tx) || tx < 0 || tx > canvas.width) break;
+      ctx.lineTo(tx, ty);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  function renderFrame() {
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // ═══════════════════════════════════════════
+    // 1. SKY — follows the real hour of the day
+    // ═══════════════════════════════════════════
+    const dl = daylight();
+    currentDaylight = dl.ground;
+    const skyGrad = ctx.createLinearGradient(0, 0, 0, groundY);
+    skyGrad.addColorStop(0, dl.sky[0]);
+    skyGrad.addColorStop(0.25, dl.sky[1]);
+    skyGrad.addColorStop(0.5, dl.sky[2]);
+    skyGrad.addColorStop(0.75, dl.sky[3]);
+    skyGrad.addColorStop(0.9, dl.sky[4]);
+    skyGrad.addColorStop(1, dl.sky[5]);
+    ctx.fillStyle = skyGrad;
+    ctx.fillRect(0, 0, canvas.width, groundY);
+
+    // Horizon glow — warm band whose strength follows the hour
+    const [gr, gg, gb] = dl.glow;
+    const glowGrad = ctx.createLinearGradient(0, groundY - 150, 0, groundY);
+    glowGrad.addColorStop(0, `rgba(${gr},${gg},${gb},0)`);
+    glowGrad.addColorStop(0.4, `rgba(${gr},${gg},${gb},${dl.glowA * 0.42})`);
+    glowGrad.addColorStop(0.7, `rgba(${gr},${gg},${gb},${dl.glowA * 0.75})`);
+    glowGrad.addColorStop(1, `rgba(${gr},${gg},${gb},${dl.glowA})`);
+    ctx.fillStyle = glowGrad;
+    ctx.fillRect(0, groundY - 150, canvas.width, 150);
+
+    // Faint moon — subtle light source, creates depth
+    const moonX = canvas.width * 0.78;
+    const moonY = groundY * 0.22;
+    const moonR = 32;
+    if (dl.moon > 0.03) {
+      // Moon glow
+      const moonGlow = ctx.createRadialGradient(moonX, moonY, moonR * 0.3, moonX, moonY, moonR * 5);
+      moonGlow.addColorStop(0, `rgba(210, 190, 160, ${0.1 * dl.moon})`);
+      moonGlow.addColorStop(0.4, `rgba(190, 170, 140, ${0.04 * dl.moon})`);
+      moonGlow.addColorStop(1, 'rgba(170, 150, 120, 0)');
+      ctx.fillStyle = moonGlow;
+      ctx.fillRect(moonX - moonR * 5, moonY - moonR * 5, moonR * 10, moonR * 10);
+      // Moon disc
+      ctx.fillStyle = `rgba(220, 205, 180, ${0.18 * dl.moon})`;
+      ctx.beginPath();
+      ctx.arc(moonX, moonY, moonR, 0, Math.PI * 2);
+      ctx.fill();
+      // Moon shadow (crescent effect) — colored like the sky behind it
+      ctx.fillStyle = dl.sky[1];
+      ctx.beginPath();
+      ctx.arc(moonX - moonR * 0.35, moonY - moonR * 0.15, moonR * 0.85, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Pale overcast sun — a bright patch behind cloud, never harsh
+    if (dl.sun > 0.03) {
+      const sunX = canvas.width * 0.22;
+      const sunY = groundY * 0.28;
+      const sunR = 26;
+      const sunGlow = ctx.createRadialGradient(sunX, sunY, sunR * 0.2, sunX, sunY, sunR * 6);
+      sunGlow.addColorStop(0, `rgba(240, 232, 210, ${0.12 * dl.sun})`);
+      sunGlow.addColorStop(0.5, `rgba(235, 225, 200, ${0.05 * dl.sun})`);
+      sunGlow.addColorStop(1, 'rgba(230, 220, 195, 0)');
+      ctx.fillStyle = sunGlow;
+      ctx.fillRect(sunX - sunR * 6, sunY - sunR * 6, sunR * 12, sunR * 12);
+      ctx.fillStyle = `rgba(245, 238, 220, ${0.16 * dl.sun})`;
+      ctx.beginPath();
+      ctx.arc(sunX, sunY, sunR, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Stars — very subtle, only in upper sky, only at night
+    if (dl.star > 0.02) {
+      const starSeed = 7;
+      for (let si = 0; si < 25; si++) {
+        const sx = ((Math.sin(si * 137.5 + starSeed) + 1) / 2) * canvas.width;
+        const sy = ((Math.cos(si * 89.3 + starSeed) + 1) / 2) * groundY * 0.4;
+        const sr = 0.4 + ((Math.sin(si * 43.7) + 1) / 2) * 0.8;
+        const sAlpha = (0.15 + ((Math.sin(si * 67.1 + starSeed) + 1) / 2) * 0.2) * dl.star;
+        ctx.fillStyle = `rgba(220, 210, 190, ${sAlpha})`;
+        ctx.beginPath();
+        ctx.arc(sx, sy, sr, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+
+    // ═══════════════════════════════════════════
+    // 2. MOUNTAINS — 3 layers with atmospheric perspective
+    // ═══════════════════════════════════════════
+    function drawMtnLayer(baseY, minH, maxH, resolution, freq1, freq2, freq3, phase, color, alpha) {
+      ctx.fillStyle = color;
+      ctx.globalAlpha = alpha;
+      ctx.beginPath();
+      ctx.moveTo(0, baseY + 40);
+      for (let mx = 0; mx <= canvas.width + 40; mx += resolution) {
+        const h = minH
+          + Math.sin(mx * freq1 + phase) * maxH * 0.5
+          + Math.sin(mx * freq2 + phase * 1.7) * maxH * 0.35
+          + Math.sin(mx * freq3 + phase * 0.4) * maxH * 0.25;
+        ctx.lineTo(mx, baseY - h);
+      }
+      ctx.lineTo(canvas.width + 40, baseY + 40);
+      ctx.closePath();
+      ctx.fill();
+      ctx.globalAlpha = 1;
+    }
+
+    // Mountains brighten with daylight, silhouette at night
+    const mtnC = (r, g, b, a) => `rgba(${Math.min(255, Math.round(r * dl.mtn))},${Math.min(255, Math.round(g * dl.mtn))},${Math.min(255, Math.round(b * dl.mtn))},${a})`;
+    // Far mountains — most distant, atmospheric blue-gray (lighter than sky)
+    drawMtnLayer(groundY, 55, 130, 22, 0.0018, 0.005, 0.0008, 1.8, mtnC(48, 40, 32, 0.55));
+    // Mid mountains — slightly darker, more defined
+    drawMtnLayer(groundY, 40, 100, 18, 0.0035, 0.008, 0.0012, 0.5, mtnC(58, 48, 38, 0.7));
+    // Near mountains — darkest, most detailed silhouette
+    drawMtnLayer(groundY, 30, 65, 14, 0.006, 0.014, 0.002, -0.8, mtnC(70, 58, 45, 0.88));
+
+    // ═══════════════════════════════════════════
+    // 3. FOG — multiple drifting mist layers (thick morning mist)
+    // ═══════════════════════════════════════════
+    const fogTime = Date.now() * 0.00003;
+    for (let f = 0; f < 4; f++) {
+      const fogY = groundY - 50 - f * 35;
+      const fogAlpha = (0.05 + f * 0.022) * dl.fog;
+      const fogColor = `rgba(160, 145, 125, ${fogAlpha})`;
+      ctx.fillStyle = fogColor;
+      ctx.beginPath();
+      ctx.moveTo(0, groundY + 10);
+      for (let fx = 0; fx <= canvas.width + 120; fx += 12) {
+        const fy = fogY
+          + Math.sin(fx * 0.006 + fogTime + f * 2.8) * 22
+          + Math.sin(fx * 0.002 + fogTime * 0.5 + f) * 30;
+        ctx.lineTo(fx, fy);
+      }
+      ctx.lineTo(canvas.width + 120, groundY + 10);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // ═══════════════════════════════════════════
+    // 4. DUST PARTICLES (ambient float)
+    // ═══════════════════════════════════════════
+    updateDust();
+    for (const p of dustParticles) {
+      ctx.fillStyle = `rgba(180,160,140,${p.opacity})`;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // ═══════════════════════════════════════════
+    // 5. GROUND — warm earth with depth gradient
+    // ═══════════════════════════════════════════
+    const G_NIGHT = ['#322a22', '#2c2620', '#241e19', '#1a1512'];
+    const G_DAY = ['#6a5f52', '#5f554a', '#524940', '#453c34'];
+    const groundGrad = ctx.createLinearGradient(0, groundY, 0, canvas.height);
+    groundGrad.addColorStop(0, lerpHex(G_NIGHT[0], G_DAY[0], dl.ground));
+    groundGrad.addColorStop(0.2, lerpHex(G_NIGHT[1], G_DAY[1], dl.ground));
+    groundGrad.addColorStop(0.6, lerpHex(G_NIGHT[2], G_DAY[2], dl.ground));
+    groundGrad.addColorStop(1, lerpHex(G_NIGHT[3], G_DAY[3], dl.ground));
+    // Ground body — top edge follows the bowl curve, earth sags under the pile
+    ctx.fillStyle = groundGrad;
+    ctx.beginPath();
+    ctx.moveTo(0, canvas.height);
+    ctx.lineTo(0, groundSurfaceY(0));
+    for (let gx = 0; gx <= canvas.width; gx += 4) {
+      ctx.lineTo(gx, groundSurfaceY(gx) + Math.sin(gx * 0.012 + 0.8) * 2.5 + Math.sin(gx * 0.045) * 1.2);
+    }
+    ctx.lineTo(canvas.width, canvas.height);
+    ctx.closePath();
+    ctx.fill();
+
+    // Dark rim hugging the surface curve
+    ctx.fillStyle = '#12100c';
+    ctx.beginPath();
+    ctx.moveTo(0, groundSurfaceY(0) - 1);
+    for (let gx = 0; gx <= canvas.width; gx += 4) {
+      ctx.lineTo(gx, groundSurfaceY(gx) + Math.sin(gx * 0.012 + 0.8) * 2.5 + Math.sin(gx * 0.045) * 1.2);
+    }
+    for (let gx = canvas.width; gx >= 0; gx -= 4) {
+      ctx.lineTo(gx, groundSurfaceY(gx) + 7);
+    }
+    ctx.closePath();
+    ctx.fill();
+
+    // Ground surface line — warm highlight following the dip
+    ctx.strokeStyle = 'rgba(90, 75, 58, 0.4)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, groundSurfaceY(0));
+    for (let gx = 0; gx <= canvas.width; gx += 6) {
+      ctx.lineTo(gx, groundSurfaceY(gx));
+    }
+    ctx.stroke();
+
+    // Ground texture — scattered pebbles and grit (warmer tones)
+    const gritSeed = 42;
+    for (let gi = 0; gi < 150; gi++) {
+      const gx = ((Math.sin(gi * 137.5 + gritSeed) + 1) / 2) * canvas.width;
+      const gsurf = groundSurfaceY(gx);
+      const gy = gsurf + 3 + ((Math.cos(gi * 89.3 + gritSeed) + 1) / 2) * Math.max(4, canvas.height - gsurf - 6);
+      const gr = 0.4 + ((Math.sin(gi * 43.7) + 1) / 2) * 1.8;
+      const gAlpha = 0.08 + ((Math.sin(gi * 67.1) + 1) / 2) * 0.1;
+      const isWarm = gi % 5 === 0;
+      ctx.fillStyle = isWarm
+        ? `rgba(180, 150, 110, ${gAlpha})`
+        : `rgba(150, 130, 105, ${gAlpha})`;
+      ctx.beginPath();
+      ctx.arc(gx, gy, gr, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // Ground-to-sky transition blur
+    const edgeGrad = ctx.createLinearGradient(0, groundY - 8, 0, groundY + 8);
+    edgeGrad.addColorStop(0, 'rgba(15,13,10,0)');
+    edgeGrad.addColorStop(0.5, 'rgba(15,13,10,0.4)');
+    edgeGrad.addColorStop(1, 'rgba(44,39,34,0)');
+    ctx.fillStyle = edgeGrad;
+    ctx.fillRect(0, groundY - 8, canvas.width, 16);
+
+    // ═══════════════════════════════════════════
+    // 6. MOSS — sparse, subtle organic blobs
+    // ═══════════════════════════════════════════
+    updateMossAndTrails();
+    for (const cell of mossGrid) {
+      if (cell.mossLevel > 0.05) {
+        const alpha = cell.mossLevel * 0.28;
+        const bx = cell.x + cell.blobOffsetX;
+        const by = cell.y + cell.blobOffsetY;
+        const br = cell.blobR * (0.6 + cell.mossLevel * 0.5);
+        // Dark moss blob
+        ctx.fillStyle = `rgba(38, 58, 32, ${alpha})`;
+        ctx.beginPath();
+        for (let a = 0; a < Math.PI * 2; a += 0.5) {
+          const r = br * (0.65 + Math.sin(a * 3 + cell.gx) * 0.2 + Math.cos(a * 5 + cell.gy) * 0.12);
+          const px = bx + Math.cos(a) * r;
+          const py = by + Math.sin(a) * r;
+          if (a === 0) ctx.moveTo(px, py);
+          else ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+
+    // ═══════════════════════════════════════════
+    // 7. TRAIL MARKS — worn paths
+    // ═══════════════════════════════════════════
+    for (const t of trailMarks) {
+      const fade = 1 - t.age / 800;
+      if (fade <= 0) continue;
+      const grad = ctx.createRadialGradient(t.x, t.y, 0, t.x, t.y, t.r);
+      grad.addColorStop(0, `rgba(220, 200, 165, ${t.opacity * fade * 1.2})`);
+      grad.addColorStop(0.5, `rgba(200, 180, 145, ${t.opacity * fade * 0.7})`);
+      grad.addColorStop(1, 'rgba(180, 160, 130, 0)');
+      ctx.fillStyle = grad;
+      ctx.beginPath();
+      ctx.arc(t.x, t.y, t.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // ═══════════════════════════════════════════
+    // 8. CRACKS + WEAR MARKS
+    // ═══════════════════════════════════════════
+    drawGroundCracks(ctx);
+    drawWearMarks(ctx);
+
+    // ═══════════════════════════════════════════
+    // 9. STONES — depth-sorted
+    // ═══════════════════════════════════════════
+    // Stones returning to the earth — drawn fading beneath the living pile
+    updateSinking();
+    for (const sk of sinkingStones) {
+      currentStoneFade = Math.max(0, 1 - sk.progress);
+      ctx.save();
+      ctx.globalAlpha = currentStoneFade;
+      drawStone(ctx, sk.stone, sk.stone.body);
+      ctx.restore();
+    }
+    currentStoneFade = 1;
+
+    const sorted = [...stones].sort((a, b) => a.body.position.y - b.body.position.y);
+    for (const stone of sorted) drawStone(ctx, stone, stone.body);
+
+    // ═══════════════════════════════════════════
+    // 10. TRAJECTORY + BURST PARTICLES
+    // ═══════════════════════════════════════════
+    drawTrajectory(ctx);
+    updateBurst();
+    for (const p of burstParticles) {
+      ctx.fillStyle = `rgba(220,200,170,${p.life * 0.85})`;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+
+    // ═══════════════════════════════════════════
+    // 11. VIGNETTE — frames the scene
+    // ═══════════════════════════════════════════
+    const vignetteGrad = ctx.createRadialGradient(
+      canvas.width / 2, canvas.height * 0.45, canvas.width * 0.35,
+      canvas.width / 2, canvas.height * 0.45, canvas.width * 0.75
+    );
+    vignetteGrad.addColorStop(0, 'rgba(0,0,0,0)');
+    vignetteGrad.addColorStop(1, 'rgba(0,0,0,0.28)');
+    ctx.fillStyle = vignetteGrad;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Content panels physics
+    updatePanels();
+
+    requestAnimationFrame(renderFrame);
+  }
+
+  // ── Input bar auto-show/hide ──
+  const inputBar = document.getElementById('input-bar');
+  const readyIndicator = document.getElementById('ready-indicator');
+  let inputVisible = false;
+  let mouseNearBottom = false;
+
+  document.addEventListener('mousemove', (e) => {
+    if (isActive && e.clientY > groundY - 20) {
+      addTrailMark(e.clientX, e.clientY);
+      markMossVisited(e.clientX, e.clientY);
+    }
+    if (!isActive) return;
+    const near = e.clientY > canvas.height - 120;
+    if (near !== mouseNearBottom) {
+      mouseNearBottom = near;
+      if (near) {
+        inputBar.classList.add('visible');
+        inputVisible = true;
+      } else {
+        // Small delay before hiding
+        setTimeout(() => {
+          if (!mouseNearBottom) {
+            inputBar.classList.remove('visible');
+            inputVisible = false;
+          }
+        }, 800);
+      }
+    }
+  });
+
+  // ── Input ──
+  const inputEl = document.getElementById('stone-input');
+  const weightDotsEl = document.getElementById('weight-dots');
+  const throwBtn = document.getElementById('throw-btn');
+
+  // Auto-grow textarea as content lengthens (up to max-height, then scroll)
+  function autoGrowInput() {
+    inputEl.style.height = 'auto';
+    const next = Math.min(inputEl.scrollHeight, 160);
+    inputEl.style.height = next + 'px';
+    inputEl.style.overflowY = inputEl.scrollHeight > 160 ? 'auto' : 'hidden';
+  }
+
+  inputEl.addEventListener('input', () => {
+    autoGrowInput();
+    const len = inputEl.value.length;
+    // Weight indicator as dots — visual, not textual
+    weightDotsEl.textContent = len > 0 ? (len <= 10 ? '·' : len <= 30 ? '··' : len <= 80 ? '···' : '····') : '';
+    weightDotsEl.className = 'weight-dots' + (len > 0 ? ' has-text' : '');
+    throwBtn.disabled = len === 0;
+  });
+
+  // ── Throw logic ──
+  function getEventPos(e) {
+    if (e.touches) return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    return { x: e.clientX, y: e.clientY };
+  }
+
+  function handleThrowStart(e) {
+    if (!isActive) return;
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON' || e.target.tagName === 'TEXTAREA') return;
+    // Auto-activate: if input has text, start throw immediately
+    if (!pendingThrow && inputEl.value.trim()) {
+      doThrow(inputEl.value.trim());
+    }
+    if (!pendingThrow) return; // nothing to throw
+    const pos = getEventPos(e);
+    throwOrigin = { x: pos.x, y: pos.y, time: Date.now() };
+    throwCurrent = { x: pos.x, y: pos.y };
+    e.preventDefault();
+  }
+
+  canvas.addEventListener('mousemove', (e) => {
+    if (throwOrigin) {
+      throwCurrent = { x: e.clientX, y: e.clientY };
+    }
+  });
+  canvas.addEventListener('touchmove', (e) => {
+    if (throwOrigin && e.touches.length) {
+      throwCurrent = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    }
+  }, { passive: false });
+
+  function handleThrowEnd(e) {
+    if (!isActive || !throwOrigin || !pendingThrow) {
+      throwOrigin = null;
+      throwCurrent = null;
+      return;
+    }
+    const pos = e.touches && e.changedTouches
+      ? { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY }
+      : (e.type === 'touchend' ? throwOrigin : { x: e.clientX, y: e.clientY });
+
+    const dx = pos.x - throwOrigin.x;
+    const dy = pos.y - throwOrigin.y;
+    const dt = Math.max(Date.now() - throwOrigin.time, 16);
+    const speedX = (dx / dt) * 12;
+    const speedY = (dy / dt) * 8;
+    const angularVel = -speedX * 0.04;
+
+    const startX = Math.max(30, Math.min(canvas.width - 30, throwOrigin.x));
+    const startY = 50;
+
+    addStone(pendingThrow, startX, startY, speedX, speedY, angularVel, pendingThrow);
+    pendingThrow = null;
+    throwOrigin = null;
+    throwCurrent = null;
+    inputEl.value = '';
+    inputEl.style.height = 'auto';
+    weightDotsEl.textContent = '';
+    weightDotsEl.className = 'weight-dots';
+    throwBtn.disabled = true;
+    readyIndicator.classList.remove('show');
+    e.preventDefault();
+  }
+
+  function handleThrowCancel() {
+    throwOrigin = null;
+    throwCurrent = null;
+  }
+
+  function doThrow(text) {
+    if (!text.trim()) return;
+    pendingThrow = text.trim();
+    readyIndicator.classList.add('show');
+  }
+
+  throwBtn.addEventListener('click', () => {
+    const text = inputEl.value.trim();
+    if (!text) return;
+    doThrow(text);
+  });
+
+  inputEl.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const text = inputEl.value.trim();
+      if (!text) return;
+      doThrow(text);
+    }
+  });
+
+  canvas.addEventListener('mousedown', handleThrowStart);
+  canvas.addEventListener('mouseup', handleThrowEnd);
+  canvas.addEventListener('touchstart', handleThrowStart, { passive: false });
+  canvas.addEventListener('touchend', handleThrowEnd, { passive: false });
+  canvas.addEventListener('touchcancel', handleThrowCancel);
+
+  // ── Content Panels (floating reading surfaces with physics) ──
+  let panels = [];
+
+  function openContentPanel(stone) {
+    closePanelForStone(stone);
+
+    const panel = document.createElement('div');
+    // Visual class based on weight — difference is immediately visible
+    const weightClass = stone.weight < 0.7 ? 'light' : stone.weight < 1.4 ? 'medium' : 'heavy';
+    panel.className = `content-panel ${weightClass}`;
+    const displayText = stone.text.length > 8 ? stone.text.slice(0, 8) + '…' : stone.text;
+    const weightLabel = stone.weight < 0.7 ? '轻' : stone.weight < 1.4 ? '适中' : stone.weight < 2.0 ? '沉' : '重';
+
+    panel.innerHTML = `
+      <div class="panel-close">×</div>
+      <div class="panel-title">「${displayText}」</div>
+      <div class="panel-body">${escapeHtml(stone.content).replace(/\n/g, '<br>')}</div>
+      <div class="weight-hint">分量：${weightLabel}<span class="share-rub" title="拓下这块石头">拓</span></div>
+    `;
+    document.body.appendChild(panel);
+
+    // Physics state — dramatic differences between light and heavy
+    const isLight = stone.weight < 0.7;
+    const isHeavy = stone.weight >= 1.4;
+    const p = {
+      el: panel,
+      stone: stone,
+      x: stone.body.position.x,
+      y: stone.body.position.y - stone.radius - 60,
+      vx: 0, vy: 0,
+      dragging: false,
+      lastMouseX: 0, lastMouseY: 0,
+      // Light: slippery, responsive. Heavy: sluggish, resistant.
+      friction: isLight ? 0.94 : isHeavy ? 0.82 : 0.88,
+      mass: isLight ? 0.3 : isHeavy ? 3.0 : 1.0,
+      // Buoyancy: light floats up, heavy sinks down
+      buoyancy: isLight ? -0.04 : isHeavy ? 0.08 : 0.02
+    };
+    panels.push(p);
+
+    // Show with a small pop — no smooth CSS transition, just physics
+    p.el.style.left = p.x + 'px';
+    p.el.style.top = (p.y - 20) + 'px';
+    requestAnimationFrame(() => {
+      p.vy = -1.5; // Initial upward pop
+      panel.classList.add('active');
+    });
+
+    panel.querySelector('.panel-close').addEventListener('click', (e) => {
+      e.stopPropagation();
+      removePanel(p);
+    });
+
+    // "拓" — make a rubbing of this stone to share (encode into URL, no backend)
+    const shareEl = panel.querySelector('.share-rub');
+    shareEl.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const data = { t: stone.text, c: stone.content, ts: stone.createdAt };
+      const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(data))));
+      const url = location.origin + location.pathname + '#s=' + encoded;
+      const done = () => {
+        shareEl.textContent = '已拓';
+        setTimeout(() => { shareEl.textContent = '拓'; }, 1600);
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(url).then(done).catch(() => {
+          // Fallback: promptless manual copy
+          const ta = document.createElement('textarea');
+          ta.value = url; document.body.appendChild(ta); ta.select();
+          try { document.execCommand('copy'); } catch (err) {}
+          ta.remove(); done();
+        });
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = url; document.body.appendChild(ta); ta.select();
+        try { document.execCommand('copy'); } catch (err) {}
+        ta.remove(); done();
+      }
+    });
+
+    panel.addEventListener('mousedown', (e) => {
+      if (e.target.classList.contains('panel-close') || e.target.classList.contains('share-rub')) return;
+      p.dragging = true;
+      panel.classList.add('dragging');
+      p.lastMouseX = e.clientX;
+      p.lastMouseY = e.clientY;
+    });
+
+    stone.readAt = Date.now();
+  }
+
+  function removePanel(p) {
+    p.el.style.opacity = '0';
+    setTimeout(() => {
+      if (p.el.parentNode) p.el.remove();
+      panels = panels.filter(x => x !== p);
+    }, 200);
+  }
+
+  function closePanelForStone(stone) {
+    for (const p of panels) {
+      if (p.stone === stone) removePanel(p);
+    }
+  }
+
+  function updatePanels() {
+    for (const p of panels) {
+      if (!p.dragging) {
+        // Friction slows movement
+        p.vx *= p.friction;
+        p.vy *= p.friction;
+
+        // Gravity / buoyancy — heavy sinks, light floats
+        p.vy += p.buoyancy;
+
+        // Slight random drift for light panels (like dust)
+        if (p.mass < 0.5) {
+          p.vx += (Math.random() - 0.5) * 0.03;
+          p.vy += (Math.random() - 0.5) * 0.02;
+        }
+
+        p.x += p.vx;
+        p.y += p.vy;
+
+        // Boundaries with bounce
+        const rect = p.el.getBoundingClientRect();
+        const w = rect.width || 300;
+        const h = rect.height || 150;
+        if (p.x - w/2 < 10) { p.x = 10 + w/2; p.vx *= -0.3; }
+        if (p.x + w/2 > canvas.width - 10) { p.x = canvas.width - 10 - w/2; p.vx *= -0.3; }
+        if (p.y - h < 10) { p.y = 10 + h; p.vy *= -0.2; }
+        if (p.y > canvas.height - 10) { p.y = canvas.height - 10; p.vy *= -0.2; }
+      }
+      p.el.style.left = p.x + 'px';
+      p.el.style.top = p.y + 'px';
+    }
+  }
+
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text;
+    return div.innerHTML.replace(/\n/g, '<br>');
+  }
+
+  // Panel drag during mousemove (global)
+  document.addEventListener('mousemove', (e) => {
+    for (const p of panels) {
+      if (p.dragging) {
+        const dx = e.clientX - p.lastMouseX;
+        const dy = e.clientY - p.lastMouseY;
+        // Heavier panels need more force to accelerate
+        p.vx += dx * 0.15 / p.mass;
+        p.vy += dy * 0.15 / p.mass;
+        p.x += dx;
+        p.y += dy;
+        p.lastMouseX = e.clientX;
+        p.lastMouseY = e.clientY;
+      }
+    }
+  });
+  document.addEventListener('mouseup', () => {
+    for (const p of panels) {
+      p.dragging = false;
+      p.el.classList.remove('dragging');
+    }
+  });
+
+  // ── Double-click stone to open content panel ──
+  canvas.addEventListener('dblclick', (e) => {
+    if (!isActive) return;
+    const pos = { x: e.clientX, y: e.clientY };
+    for (let i = stones.length - 1; i >= 0; i--) {
+      const s = stones[i];
+      const b = s.body;
+      const dist = Math.sqrt((b.position.x - pos.x) ** 2 + (b.position.y - pos.y) ** 2);
+      if (dist < s.radius + 8) {
+        openContentPanel(s);
+        return;
+      }
+    }
+  });
+
+  // ── Gate ──
+  const gateEl = document.getElementById('gate');
+  const gateEnter = document.getElementById('gate-enter');
+  const gateDustCanvas = document.getElementById('gate-dust');
+  const gateDustCtx = gateDustCanvas.getContext('2d');
+  gateDustCanvas.width = window.innerWidth;
+  gateDustCanvas.height = window.innerHeight;
+
+  // Gate floating dust particles
+  const gateDust = [];
+  for (let i = 0; i < 50; i++) {
+    gateDust.push({
+      x: Math.random() * gateDustCanvas.width,
+      y: Math.random() * gateDustCanvas.height,
+      r: 0.5 + Math.random() * 1.5,
+      vx: (Math.random() - 0.5) * 0.12,
+      vy: -(0.03 + Math.random() * 0.15),
+      opacity: 0.15 + Math.random() * 0.3
+    });
+  }
+
+  function animateGateDust() {
+    if (!gateEl.classList.contains('hidden')) {
+      gateDustCtx.clearRect(0, 0, gateDustCanvas.width, gateDustCanvas.height);
+      for (const p of gateDust) {
+        p.x += p.vx;
+        p.y += p.vy;
+        if (p.x < -20) p.x = gateDustCanvas.width + 20;
+        if (p.x > gateDustCanvas.width + 20) p.x = -20;
+        if (p.y < -20) p.y = gateDustCanvas.height + 20;
+        if (p.y > gateDustCanvas.height + 20) p.y = -20;
+        gateDustCtx.fillStyle = `rgba(180, 160, 140, ${p.opacity})`;
+        gateDustCtx.beginPath();
+        gateDustCtx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
+        gateDustCtx.fill();
+      }
+    }
+    requestAnimationFrame(animateGateDust);
+  }
+  animateGateDust();
+
+  gateEnter.addEventListener('click', () => {
+    if (isActive) return;
+    gateEl.classList.add('hidden');
+    localStorage.setItem('stonepile-entered', '1');
+    ensureAudio(); // Unlock audio on first user gesture
+    setTimeout(() => {
+      isActive = true;
+      inputBar.classList.add('visible');
+      inputVisible = true;
+      document.getElementById('stone-count').classList.add('show');
+      document.getElementById('vignette').classList.add('show');
+    }, 1000);
+    if (!isDemo) {
+      addStone('你好', canvas.width * 0.35, groundY - 40, 0, 0.3, 0.02);
+      setTimeout(() => {
+        addStone('世界', canvas.width * 0.55, groundY - 90, 0.5, 0.2, -0.01);
+        setTimeout(() => {
+          addStone('石堆', canvas.width * 0.48, groundY - 150, -0.3, 0.4, 0.03);
+        }, 400);
+      }, 400);
+    }
+  });
+
+  // ── Persistence ──
+  const STORAGE_KEY = 'stonepile_v3';
+
+  function saveStones() {
+    // Never save mid-restock — a partial drop would truncate the pile
+    if (restocking) return;
+    const data = stones.map(s => ({
+      text: s.text, content: s.content, weight: s.weight,
+      x: s.body.position.x, y: s.body.position.y,
+      angle: s.body.angle, vx: s.body.velocity.x, vy: s.body.velocity.y,
+      av: s.body.angularVelocity, radius: s.radius,
+      color: s.color, createdAt: s.createdAt
+    }));
+    // Save moss grid (only cells with meaningful moss)
+    const mossData = mossGrid.filter(c => c.mossLevel > 0.05 || (Date.now() - c.lastVisit) > 60000)
+      .map(c => ({ gx: c.gx, gy: c.gy, lastVisit: c.lastVisit, mossLevel: c.mossLevel }));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({
+      v: 5, stones: data, wear: wearMarks.slice(-MAX_WEAR), count: stoneCount,
+      moss: mossData, trail: trailMarks.slice(-MAX_TRAIL)
+    }));
+  }
+
+  function loadStones() {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const data = JSON.parse(raw);
+      // Version check — bump this when storage format changes
+      if (data.v !== 5) { localStorage.removeItem(STORAGE_KEY); return; }
+      if (!data.stones || !data.stones.length) return;
+      // Keep only the newest MAX_STONES
+      const keep = data.stones.slice(-MAX_STONES);
+      // Stones return ONE BY ONE — dropped all at once they crash into each
+      // other and scatter. Sequentially, the pile re-forms gently from the
+      // bottom up, the way it was built. Heaviest first: foundation stones.
+      const sorted = keep.slice().sort((a, b) =>
+        (b.weight || 0) - (a.weight || 0));
+      restocking = true;
+      sorted.forEach((s, i) => {
+        setTimeout(() => {
+          const weight = s.weight || computeWeight(s.content || s.text);
+          const radius = computeRadius((s.text || '').length, weight);
+          const body = createStoneBody(
+            canvas.width / 2 + (Math.random() - 0.5) * canvas.width * 0.14,
+            -60 - Math.random() * 50,
+            radius, weight
+          );
+          const stone = {
+            body, text: s.text, content: s.content || s.text, weight, radius,
+            color: s.color, createdAt: s.createdAt || Date.now(), readAt: null,
+            chiselOffsets: null
+          };
+          stone.chiselOffsets = [];
+          for (let j = 0; j < s.text.length; j++) {
+            stone.chiselOffsets.push({ x: (Math.random() - 0.5) * 2, y: (Math.random() - 0.5) * 2 });
+          }
+          stones.push(stone);
+          Composite.add(engine.world, body);
+          stoneCount = stones.length;
+          updateStoneCount();
+          if (i === sorted.length - 1) {
+            // Pile fully restocked — absorb any strays that slipped in
+            restocking = false;
+            cullOldStones();
+            saveStones();
+          }
+        }, 400 + i * 170);
+      });
+      stoneCount = 0;
+      wearMarks = data.wear || [];
+      // Restore moss
+      if (data.moss) {
+        for (const mc of data.moss) {
+          const cell = mossGrid.find(c => c.gx === mc.gx && c.gy === mc.gy);
+          if (cell) { cell.lastVisit = mc.lastVisit; cell.mossLevel = mc.mossLevel; }
+        }
+      }
+      trailMarks = data.trail || [];
+      updateStoneCount();
+    } catch (e) { console.warn('Failed to load stones'); }
+  }
+
+  setInterval(() => { if (isActive && stones.length) saveStones(); }, 3000);
+
+  // ── Demo mode ──
+  if (isDemo) {
+    setTimeout(() => {
+      gateEl.classList.add('hidden');
+      setTimeout(() => {
+        isActive = true;
+        inputBar.classList.add('visible');
+        inputVisible = true;
+        document.getElementById('stone-count').classList.add('show');
+        document.getElementById('vignette').classList.add('show');
+        const demos = ['沉','念','光'];
+        demos.forEach((t, i) => {
+          setTimeout(() => {
+            addStone(t, canvas.width*(0.35+i*0.2), 80+Math.random()*40, (Math.random()-0.5)*2, Math.random()*1.5, (Math.random()-0.5)*0.06);
+          }, i*300);
+        });
+      }, 600);
+    }, 300);
+  }
+
+  // ── Ancestor stones — first-time visitors find a pile that already has history ──
+  function seedAncestorStones() {
+    const ancestors = [
+      { text: '渡', content: '所有人问你飞得高不高，很少有人问你飞得累不累。', daysAgo: 9 },
+      { text: '夜航', content: '凌晨三点写下的东西，都是白天不敢说的。', daysAgo: 7 },
+      { text: '石头记', content: '把最重的话，留给最沉默的东西。', daysAgo: 6 },
+      { text: '归', content: '走再远，最后都是回到自己。', daysAgo: 4 },
+      { text: '野', content: '风把话说完，就停了。', daysAgo: 3 },
+      { text: '拾', content: '你捡起的每块石头，都是别人放下的。', daysAgo: 2 }
+    ];
+    ancestors.forEach((a, i) => {
+      // Ancestors are the existing pile — they belong in the basin
+      const x = canvas.width * (0.34 + i * 0.065) + (Math.random() - 0.5) * 40;
+      const y = 60 + Math.random() * 40;
+      const stone = addStone(a.text, x, y, 0, 0, 0, a.content);
+      // Backdate — these stones have been lying here for days
+      stone.createdAt = Date.now() - a.daysAgo * 86400000;
+    });
+    saveStones();
+  }
+
+  // ── Startup ──
+  loadStones();
+  // First visit: the pile should already have history (unless user cleared it before)
+  if (stoneCount === 0 && !localStorage.getItem('stonepile-seeded')) {
+    seedAncestorStones();
+    localStorage.setItem('stonepile-seeded', '1');
+  }
+  // Received a rubbing (#s=...) — a stone someone shared lands in your pile
+  if (location.hash.startsWith('#s=')) {
+    try {
+      const data = JSON.parse(decodeURIComponent(escape(atob(location.hash.slice(3)))));
+      if (data && data.t) {
+        const shared = addStone(data.t, canvas.width / 2 + (Math.random() - 0.5) * 100, 70, 0, 0.5, 0, data.c || data.t);
+        shared.createdAt = data.ts || Date.now();
+        saveStones();
+      }
+    } catch (e) { /* malformed hash — ignore silently */ }
+    history.replaceState(null, '', location.pathname);
+  }
+  // Only returning visitors skip the gate — first-timers always see it
+  if (localStorage.getItem('stonepile-entered')) {
+    gateEl.style.display = 'none';
+    isActive = true;
+    inputBar.classList.add('visible');
+    inputVisible = true;
+    document.getElementById('stone-count').classList.add('show');
+    document.getElementById('vignette').classList.add('show');
+  }
+
+  // ── Clear pile ──
+  const stoneCountEl = document.getElementById('stone-count');
+  const clearToast = document.getElementById('clear-toast');
+  stoneCountEl.addEventListener('click', () => {
+    if (stoneCount > 0) clearToast.classList.add('show');
+  });
+  document.getElementById('clear-no').addEventListener('click', () => clearToast.classList.remove('show'));
+  document.getElementById('clear-yes').addEventListener('click', () => {
+    for (const s of stones) Composite.remove(engine.world, s.body);
+    stones = [];
+    wearMarks = [];
+    trailMarks = [];
+    initMossGrid();
+    groundCracks = [];
+    generateGroundCracks();
+    stoneCount = 0;
+    updateStoneCount();
+    localStorage.removeItem(STORAGE_KEY);
+    clearToast.classList.remove('show');
+  });
+
+  // Run physics
+  const runner = Runner.create();
+  Runner.run(runner, engine);
+
+  window.addEventListener('resize', () => {
+    canvas.width = window.innerWidth;
+    canvas.height = window.innerHeight;
+    gateDustCanvas.width = window.innerWidth;
+    gateDustCanvas.height = window.innerHeight;
+    generateGroundCracks();
+  });
+
+  renderFrame();
+  window.addEventListener('beforeunload', saveStones);
+</script>
+</body>
+</html>
