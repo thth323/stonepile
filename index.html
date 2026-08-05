@@ -676,7 +676,8 @@
       body, text: displayText, content, radius, weight,
       color: randomStoneColor(),
       createdAt: Date.now(), readAt: null,
-      warmth: 0, chiselOffsets: null
+      warmth: 0, chiselOffsets: null,
+      isEmpty: false
     };
     stone.chiselOffsets = [];
     for (let i = 0; i < displayText.length; i++) {
@@ -703,6 +704,35 @@
       '#E8D8C0','#D8CDB8','#CFC4AE','#DDD2BE','#C8BFAE'
     ];
     return palette[Math.floor(Math.random() * palette.length)];
+  }
+
+  // ── Rubble: empty stones that fill the pile with silence ──
+  // Not all stones carry words. Most are just rocks — they've been here
+  // longer than anyone, they weigh nothing in the memory, and when you
+  // crack them open you find only stone. This is what makes opening a
+  // stone with text a discovery rather than a browse.
+  let rubble = [];
+  function generateRubble() {
+    const count = 7 + Math.floor(Math.random() * 4); // 7-10 rubble stones
+    for (let i = 0; i < count; i++) {
+      const weight = 0.3 + Math.random() * 0.8; // light to medium — filler, not feature
+      const radius = computeRadius(1 + Math.floor(Math.random() * 3), weight) * (0.6 + Math.random() * 0.3);
+      const x = canvas.width * (0.25 + Math.random() * 0.5);
+      const y = -40 - Math.random() * 60;
+      const body = createStoneBody(x, y, radius, weight);
+      Body.setVelocity(body, { x: (Math.random() - 0.5) * 0.5, y: 0.2 });
+      Body.setAngularVelocity(body, (Math.random() - 0.5) * 0.02);
+      // Rubble is old — it's been lying here for days
+      const daysAgo = 1 + Math.floor(Math.random() * 14);
+      rubble.push({
+        body, text: '', content: '', radius, weight,
+        color: randomStoneColor(),
+        createdAt: Date.now() - daysAgo * 86400000,
+        readAt: null, warmth: 0, chiselOffsets: null,
+        isEmpty: true
+      });
+      Composite.add(engine.world, body);
+    }
   }
 
   function updateStoneCount() {
@@ -919,41 +949,9 @@
     ctx.lineWidth = 2 - weathering;
     ctx.stroke();
 
-    // ── Carved text — etched with directional light ──
-    // Scale with the stone, but keep the inscription within the face
-    const charCount = Math.max(1, stone.text.length);
-    const fontSize = Math.max(14, Math.min(r * 0.55, (r * 1.5) / charCount, 34));
-    ctx.rotate(-angle);
-    ctx.font = `600 ${fontSize}px "PingFang SC", "Noto Sans SC", system-ui`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-
-    // Carved text glows at night; daylight flattens it into the grain
-    const textFade = (1 - weathering * 0.35) * (1 - currentDaylight * 0.4);
-
-    // Deep shadow (bottom-left, away from moon)
-    ctx.fillStyle = `rgba(0,0,0,${0.4 * textFade})`;
-    ctx.fillText(stone.text, -1, 1);
-
-    // Highlight (top-right, facing moon)
-    ctx.fillStyle = `rgba(255,245,220,${0.15 * textFade})`;
-    ctx.fillText(stone.text, 0.8, -0.8);
-
-    // Main text
-    if (stone.chiselOffsets) {
-      const charWidth = ctx.measureText(stone.text).width / stone.text.length;
-      let cx = -(charWidth * (stone.text.length - 1)) / 2;
-      for (let i = 0; i < stone.text.length; i++) {
-        const off = stone.chiselOffsets[i];
-        const char = stone.text[i];
-        ctx.fillStyle = `rgba(255,248,235,${textFade})`;
-        ctx.fillText(char, cx + off.x, off.y);
-        cx += charWidth;
-      }
-    } else {
-      ctx.fillStyle = `rgba(255,248,235,${textFade})`;
-      ctx.fillText(stone.text, 0, 0);
-    }
+    // No carved text on the surface — stones are faceless from the outside.
+    // You must double-click to crack one open and discover what's inside.
+    // Most stones are empty rubble; only some carry words.
 
     ctx.restore();
   }
@@ -1379,6 +1377,16 @@
     }
     currentStoneFade = 1;
 
+    // Draw rubble first (beneath text stones) — they're the silent majority
+    const sortedRubble = [...rubble].sort((a, b) => a.body.position.y - b.body.position.y);
+    for (const rb of sortedRubble) {
+      const stoneAge = (Date.now() - rb.createdAt) / 1000;
+      const af = Math.min(0.82, Math.max(0, (stoneAge - 259200) / 518400));
+      if (af > 0.02) { ctx.save(); ctx.globalAlpha = Math.max(0.18, 1 - af); }
+      drawStone(ctx, rb, rb.body);
+      if (af > 0.02) ctx.restore();
+    }
+
     const sorted = [...stones].sort((a, b) => a.body.position.y - b.body.position.y);
     for (const stone of sorted) {
       // Ancient stones fade toward invisibility — the oldest are hardest to find
@@ -1527,6 +1535,18 @@
     if (throwOrigin) {
       throwCurrent = { x: e.clientX, y: e.clientY };
     }
+    // Cursor hint: stones are openable — but only hint, don't reveal which have text
+    if (!throwOrigin && isActive) {
+      const px = e.clientX, py = e.clientY;
+      let over = false;
+      for (const s of stones) {
+        if (Math.sqrt((s.body.position.x - px) ** 2 + (s.body.position.y - py) ** 2) < s.radius + 8) { over = true; break; }
+      }
+      if (!over) for (const s of rubble) {
+        if (Math.sqrt((s.body.position.x - px) ** 2 + (s.body.position.y - py) ** 2) < s.radius + 8) { over = true; break; }
+      }
+      canvas.style.cursor = over ? 'pointer' : '';
+    }
   });
   canvas.addEventListener('touchmove', (e) => {
     if (throwOrigin && e.touches.length) {
@@ -1603,6 +1623,31 @@
 
   function openContentPanel(stone) {
     closePanelForStone(stone);
+
+    // Empty stones — rubble with no text. You cracked open a rock and found
+    // only rock. The panel is almost transparent, almost empty, and fades
+    // quickly. The silence is the content.
+    if (stone.isEmpty || !stone.text) {
+      const panel = document.createElement('div');
+      panel.className = 'content-panel light';
+      panel.style.opacity = '0.4';
+      panel.innerHTML = `<div class="panel-close" style="opacity:0.5">×</div>`;
+      document.body.appendChild(panel);
+      panel.style.left = stone.body.position.x + 'px';
+      panel.style.top = (stone.body.position.y - stone.radius - 40) + 'px';
+      panel.classList.add('active');
+      // Fades away after 2.5s — you found nothing, and nothing doesn't linger
+      setTimeout(() => {
+        panel.style.transition = 'opacity 1.2s ease';
+        panel.style.opacity = '0';
+        setTimeout(() => panel.remove(), 1200);
+      }, 2500);
+      panel.querySelector('.panel-close').addEventListener('click', (e) => {
+        e.stopPropagation();
+        panel.remove();
+      });
+      return;
+    }
 
     const panel = document.createElement('div');
     // Visual class based on weight — difference is immediately visible
@@ -1809,11 +1854,23 @@
   });
 
   // ── Double-click stone to open content panel ──
+  // Checks text stones first (they're drawn on top), then rubble.
   canvas.addEventListener('dblclick', (e) => {
     if (!isActive) return;
     const pos = { x: e.clientX, y: e.clientY };
+    // Text stones first — they're on top visually
     for (let i = stones.length - 1; i >= 0; i--) {
       const s = stones[i];
+      const b = s.body;
+      const dist = Math.sqrt((b.position.x - pos.x) ** 2 + (b.position.y - pos.y) ** 2);
+      if (dist < s.radius + 8) {
+        openContentPanel(s);
+        return;
+      }
+    }
+    // Then rubble — opening an empty stone is part of the experience
+    for (let i = rubble.length - 1; i >= 0; i--) {
+      const s = rubble[i];
       const b = s.body;
       const dist = Math.sqrt((b.position.x - pos.x) ** 2 + (b.position.y - pos.y) ** 2);
       if (dist < s.radius + 8) {
@@ -2048,6 +2105,9 @@
     seedAncestorStones();
     localStorage.setItem('stonepile-seeded', '1');
   }
+  // Rubble regenerates every visit — silent stones that make the pile a place
+  // rather than a message board. They are never saved; they arrive fresh.
+  generateRubble();
   // Received a rubbing (#s=...) — a stone someone shared lands in your pile
   if (location.hash.startsWith('#s=')) {
     try {
