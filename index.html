@@ -213,6 +213,7 @@
     letter-spacing: 0; padding: 0 2px;
   }
   .content-panel .share-rub:hover { opacity: 1; }
+  .content-panel .offer-stone { margin-left: 10px; }
   /* Heavy panel — dense, grounded, like a stone tablet */
   .content-panel.heavy {
     background: rgba(16, 12, 8, 0.98);
@@ -631,9 +632,12 @@
     }
   }
 
-  // Stones are substantial — big enough that a handful of them MUST stack
+  // Stones are substantial — big enough that a handful of them MUST stack.
+  // Size follows viewport width: desktop boulders, phone pebbles. The pile
+  // must read as "a small heap in a vast place" on every screen.
+  const stoneScale = Math.max(0.5, Math.min(1, canvas.width / 1100));
   function computeRadius(len, weight) {
-    return Math.min(30 + len * 6.5 + weight * 22 + Math.random() * 10, 92);
+    return Math.min((30 + len * 6.5 + weight * 22 + Math.random() * 10) * stoneScale, 92 * stoneScale);
   }
 
   function addStone(text, x, y, vx, vy, av, fullContent) {
@@ -1543,7 +1547,7 @@
       <div class="panel-close">×</div>
       <div class="panel-title">「${displayText}」</div>
       <div class="panel-body">${escapeHtml(stone.content).replace(/\n/g, '<br>')}</div>
-      <div class="weight-hint">分量：${weightLabel}<span class="share-rub" title="拓下这块石头">拓</span></div>
+      <div class="weight-hint">分量：${weightLabel}<span class="share-rub offer-stone" title="供出去——它会沉入这里的土地，出现在所有人的石堆里">供</span><span class="share-rub" title="拓下这块石头">拓</span></div>
     `;
     document.body.appendChild(panel);
 
@@ -1603,6 +1607,47 @@
         ta.value = url; document.body.appendChild(ta); ta.select();
         try { document.execCommand('copy'); } catch (err) {}
         ta.remove(); done();
+      }
+    });
+
+    // "供" — give this stone to the commons. It sinks here, appears everywhere.
+    const offerEl = panel.querySelector('.offer-stone');
+    offerEl.addEventListener('click', async (e) => {
+      e.stopPropagation();
+      const feedback = (text, revert = true) => {
+        offerEl.textContent = text;
+        if (revert) setTimeout(() => { offerEl.textContent = '供'; }, 1800);
+      };
+      // A stone must have rested here at least 20h before it may be offered
+      if (Date.now() - stone.createdAt < 20 * 3600 * 1000) {
+        feedback('太新');
+        return;
+      }
+      offerEl.textContent = '…';
+      try {
+        const res = await fetch(POOL_API + '/offer', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ t: stone.text, c: stone.content, ts: stone.createdAt, w: stone.weight })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (res.ok && data.ok) {
+          feedback('已供', false);
+          // It leaves this pile — sinks into the earth, belongs to everyone
+          const idx = stones.indexOf(stone);
+          if (idx >= 0) {
+            stones.splice(idx, 1);
+            stoneCount = stones.length;
+            updateStoneCount();
+            saveStones();
+            sinkStone(stone);
+            setTimeout(() => removePanel(p), 900);
+          }
+        } else {
+          feedback(data.error === 'too_often' ? '一日一供' : '未成');
+        }
+      } catch (err) {
+        feedback('未成');
       }
     });
 
@@ -1877,7 +1922,31 @@
   }
 
   // ── Ancestor stones — first-time visitors find a pile that already has history ──
-  function seedAncestorStones() {
+  // Seeded from the commons (real stones people offered) when reachable,
+  // otherwise from the house stones below.
+  const POOL_API = 'https://stonepool.PENDING_SUBDOMAIN.workers.dev';
+
+  async function seedAncestorStones() {
+    let common = null;
+    try {
+      const res = await fetch(POOL_API + '/pool', { cache: 'no-store' });
+      const data = await res.json();
+      if (data && Array.isArray(data.stones) && data.stones.length) common = data.stones;
+    } catch (e) { /* the commons is unreachable — the house stones remain */ }
+
+    if (common) {
+      // Take the newest few — leave room in the visitor's pile for their own
+      const seeds = common.slice(-7);
+      seeds.forEach((s, i) => {
+        const x = canvas.width * (0.32 + i * 0.055) + (Math.random() - 0.5) * 40;
+        const y = 60 + Math.random() * 40;
+        const stone = addStone(String(s.t).slice(0, 24), x, y, 0, 0, 0, String(s.c || s.t));
+        stone.createdAt = Number(s.ts) || Date.now();
+      });
+      saveStones();
+      return;
+    }
+
     const ancestors = [
       { text: '渡', content: '所有人问你飞得高不高，很少有人问你飞得累不累。', daysAgo: 9 },
       { text: '夜航', content: '凌晨三点写下的东西，都是白天不敢说的。', daysAgo: 7 },

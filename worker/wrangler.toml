@@ -1,0 +1,8 @@
+name = "stonepool"
+main = "src/index.js"
+compatibility_date = "2026-08-05"
+
+# wrangler kv namespace create STONEPOOL 之后把 id 填到这里
+[[kv_namespaces]]
+binding = "STONEPOOL"
+id = "PENDING_NAMESPACE_ID"
