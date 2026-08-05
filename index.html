@@ -12,8 +12,10 @@
 <meta property="og:title" content="石堆 · STONEPILE">
 <meta property="og:description" content="把话刻在石头上，扔在这里。没有账号，只有痕迹。">
 <meta property="og:type" content="website">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://stonepool.928387010.workers.dev; font-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%230E0C0A'/%3E%3Cpath d='M32 14 L46 30 L41 48 L23 48 L18 30 Z' fill='%237A6B58'/%3E%3Cpath d='M32 14 L46 30 L41 48 L32 48 Z' fill='%235C4E40'/%3E%3C/svg%3E">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/matter-js/0.20.0/matter.min.js"></script>
+<script src="vendor/matter.min.js"></script>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body { width: 100%; height: 100%; overflow: hidden; background: #0E0C0A; }
@@ -641,7 +643,9 @@
   }
 
   function addStone(text, x, y, vx, vy, av, fullContent) {
-    const content = fullContent || text;
+    // Central content cap — protects localStorage and matches the pool's limit
+    const content = String(fullContent || text).slice(0, 2000);
+    text = String(text).slice(0, 24);
     const weight = computeWeight(content);
     // Stone surface text: first few chars, newlines stripped
     const flatText = text.replace(/\s+/g, '');
@@ -1545,7 +1549,7 @@
 
     panel.innerHTML = `
       <div class="panel-close">×</div>
-      <div class="panel-title">「${displayText}」</div>
+      <div class="panel-title">「${escapeHtml(displayText)}」</div>
       <div class="panel-body">${escapeHtml(stone.content).replace(/\n/g, '<br>')}</div>
       <div class="weight-hint">分量：${weightLabel}<span class="share-rub offer-stone" title="供出去——它会沉入这里的土地，出现在所有人的石堆里">供</span><span class="share-rub" title="拓下这块石头">拓</span></div>
     `;
@@ -1940,8 +1944,13 @@
       seeds.forEach((s, i) => {
         const x = canvas.width * (0.32 + i * 0.055) + (Math.random() - 0.5) * 40;
         const y = 60 + Math.random() * 40;
-        const stone = addStone(String(s.t).slice(0, 24), x, y, 0, 0, 0, String(s.c || s.t));
-        stone.createdAt = Number(s.ts) || Date.now();
+        // Pool data is untrusted — cap lengths, validate timestamp
+        const st = String(s.t || '').trim().slice(0, 24);
+        if (!st) return;
+        const sc = String(s.c || st).slice(0, 2000);
+        const sts = Number(s.ts);
+        const stone = addStone(st, x, y, 0, 0, 0, sc);
+        stone.createdAt = (sts > 946684800000 && sts < Date.now()) ? sts : Date.now();
       });
       saveStones();
       return;
@@ -1977,9 +1986,13 @@
   if (location.hash.startsWith('#s=')) {
     try {
       const data = JSON.parse(decodeURIComponent(escape(atob(location.hash.slice(3)))));
-      if (data && data.t) {
-        const shared = addStone(data.t, canvas.width / 2 + (Math.random() - 0.5) * 100, 70, 0, 0.5, 0, data.c || data.t);
-        shared.createdAt = data.ts || Date.now();
+      // Untrusted input — validate types and cap lengths before it touches the pile
+      if (data && typeof data.t === 'string' && data.t.trim()) {
+        const t = data.t.trim().slice(0, 24);
+        const c = (typeof data.c === 'string' && data.c.trim() ? data.c : t).slice(0, 2000);
+        const ts = Number(data.ts);
+        const shared = addStone(t, canvas.width / 2 + (Math.random() - 0.5) * 100, 70, 0, 0.5, 0, c);
+        shared.createdAt = (ts > 946684800000 && ts < Date.now()) ? ts : Date.now();
         saveStones();
       }
     } catch (e) { /* malformed hash — ignore silently */ }

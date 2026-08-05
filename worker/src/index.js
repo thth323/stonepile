@@ -43,6 +43,10 @@ export default {
 
     // ── Offer a stone ──
     if (url.pathname === '/offer' && request.method === 'POST') {
+      // Early body-size reject — don't parse megabytes of junk
+      const len = Number(request.headers.get('Content-Length')) || 0;
+      if (len > 8192) return json({ error: 'too_large' }, 413);
+
       const ip = request.headers.get('CF-Connecting-IP') || 'anon';
       const ipKey = 'ip_' + (await sha256short(ip));
       const last = Number(await env.STONEPOOL.get(ipKey)) || 0;
@@ -53,8 +57,11 @@ export default {
       let data;
       try { data = await request.json(); } catch { return json({ error: 'bad_json' }, 400); }
 
-      const t = String(data.t || '').trim().slice(0, 24);
-      const c = String(data.c || '').trim().slice(0, 500);
+      // Strip angle brackets server-side — pool content must never carry
+      // markup, so even a broken frontend can't be turned into an XSS mule
+      const clean = (s) => String(s || '').replace(/[<>]/g, '');
+      const t = clean(data.t).trim().slice(0, 24);
+      const c = clean(data.c).trim().slice(0, 500);
       const ts = Number(data.ts) || 0;
       const w = Math.max(0, Math.min(2.5, Number(data.w) || 0));
 
@@ -78,6 +85,8 @@ export default {
 
     // ── Moderation ──
     if (url.pathname === '/admin' && request.method === 'POST') {
+      const adminLen = Number(request.headers.get('Content-Length')) || 0;
+      if (adminLen > 4096) return json({ error: 'too_large' }, 413);
       if (request.headers.get('X-Admin-Token') !== env.ADMIN_TOKEN) {
         return json({ error: 'forbidden' }, 403);
       }
