@@ -1793,6 +1793,19 @@
   // ── Content Panels (floating reading surfaces with physics) ──
   let panels = [];
 
+  // Browser back-button guard: pushing history state when overlays open
+  // lets the back button close them instead of leaving the page.
+  function pushOverlayState() {
+    if (!history.state || !history.state.spOverlay) {
+      history.pushState({ spOverlay: true }, '');
+    }
+  }
+  function closeAllOverlays() {
+    while (panels.length > 0) removePanel(panels[panels.length - 1]);
+    if (commonsPanel.classList.contains('open')) commonsPanel.classList.remove('open');
+    clearToast.classList.remove('show');
+  }
+
   function openContentPanel(stone) {
     closePanelForStone(stone);
 
@@ -1951,6 +1964,7 @@
       p.lastMouseY = e.clientY;
     });
 
+    pushOverlayState();
     stone.readAt = Date.now();
     // Reading leaves warmth — the stone remembers being seen
     stone.warmth = Math.min(1, (stone.warmth || 0) + 0.6);
@@ -2349,16 +2363,20 @@
 
   commonsToggle.addEventListener('click', () => {
     commonsPanel.classList.add('open');
+    pushOverlayState();
     if (!commonsFetched) { fetchCommons(); commonsFetched = true; }
   });
   commonsClose.addEventListener('click', () => { commonsPanel.classList.remove('open'); });
   commonsPanel.addEventListener('click', (e) => { if (e.target === commonsPanel) commonsPanel.classList.remove('open'); });
 
-  // Keyboard close
+  // Keyboard close — Escape closes any open overlay
   document.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape' && commonsPanel.classList.contains('open')) {
-      commonsPanel.classList.remove('open');
-    }
+    if (e.key === 'Escape') closeAllOverlays();
+  });
+
+  // Browser back button closes overlays before leaving the page
+  window.addEventListener('popstate', (e) => {
+    if (e.state && e.state.spOverlay) closeAllOverlays();
   });
 
   // ── Startup ──
@@ -2434,7 +2452,7 @@
   const stoneCountEl = document.getElementById('stone-count');
   const clearToast = document.getElementById('clear-toast');
   stoneCountEl.addEventListener('click', () => {
-    if (stoneCount > 0) clearToast.classList.add('show');
+    if (stoneCount > 0) { clearToast.classList.add('show'); pushOverlayState(); }
   });
   document.getElementById('clear-no').addEventListener('click', () => clearToast.classList.remove('show'));
   document.getElementById('clear-yes').addEventListener('click', () => {
