@@ -62,6 +62,12 @@
     transition: color 0.5s, border-color 0.5s;
   }
   #gate .enter:hover { color: #C4A878; border-color: #6A5A48; }
+  #gate .gate-stats {
+    margin-top: 40px; color: #3A342E; font-size: 11px;
+    letter-spacing: 2px; min-height: 18px; text-align: center;
+    transition: color 0.8s ease;
+  }
+  #gate .gate-stats.has-data { color: #5A5044; }
   #gate .gate-dust {
     position: absolute; top: 0; left: 0; width: 100%; height: 100%;
     pointer-events: none; z-index: 0; opacity: 0.6;
@@ -358,6 +364,7 @@
   <div class="subtitle">S T O N E P I L E</div>
   <div class="verse">这里什么都没有<br>只有前人扔下的石头<br>每个人，都可以留下一块</div>
   <div class="enter" id="gate-enter">进 入</div>
+  <div class="gate-stats" id="gate-stats"></div>
 </div>
 
 <div id="stone-count">石头：0</div>
@@ -392,6 +399,7 @@
 
   // ── State ──
   const isDemo = new URLSearchParams(location.search).has('demo');
+  const POOL_API = 'https://stonepool.928387010.workers.dev';
   let stoneCount = 0;
   let isActive = false;
   let pendingThrow = null;
@@ -1683,58 +1691,159 @@
     throwBtn.disabled = len === 0;
   });
 
-  // ── Throw logic ──
+  // ── Throw + Touch logic ──
   function getEventPos(e) {
     if (e.touches) return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    if (e.changedTouches) return { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY };
     return { x: e.clientX, y: e.clientY };
   }
+
+  // Find stone at position (handles both stones[] and rubble[])
+  function stoneAt(x, y) {
+    for (let i = stones.length - 1; i >= 0; i--) {
+      const s = stones[i];
+      if (Math.hypot(s.body.position.x - x, s.body.position.y - y) < s.radius + 12) return s;
+    }
+    for (let i = rubble.length - 1; i >= 0; i--) {
+      const s = rubble[i];
+      if (Math.hypot(s.body.position.x - x, s.body.position.y - y) < s.radius + 12) return s;
+    }
+    return null;
+  }
+
+  // Mobile stone interaction state
+  let touchStone = null;      // stone currently being dragged
+  let touchStartPos = null;   // initial touch position
+  let touchStartTime = 0;     // touch timestamp
+  let touchMoved = false;     // did finger move significantly?
+  let touchLastPos = null;    // last touch position for velocity calc
+  let touchLastTime = 0;
+  let lastTapStone = null;    // for double-tap detection
+  let lastTapTime = 0;
+  const DOUBLE_TAP_MS = 380;
+  const DOUBLE_TAP_DIST = 30;
+  const DRAG_THRESHOLD = 5;   // pixels before we consider it a drag
 
   function handleThrowStart(e) {
     if (!isActive) return;
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON' || e.target.tagName === 'TEXTAREA') return;
-    // Auto-activate: if input has text, start throw immediately
+
+    const pos = getEventPos(e);
+    const hit = stoneAt(pos.x, pos.y);
+
+    // ── Touch on existing stone → pick up ──
+    if (hit && e.type === 'touchstart') {
+      touchStone = hit;
+      touchStartPos = { x: pos.x, y: pos.y };
+      touchStartTime = Date.now();
+      touchMoved = false;
+      touchLastPos = { x: pos.x, y: pos.y };
+      touchLastTime = Date.now();
+      // Freeze stone during drag — make it static so physics doesn't fight us
+      Body.setStatic(touchStone.body, true);
+      e.preventDefault();
+      return;
+    }
+
+    // ── Mouse click on stone: handled by dblclick ──
+    if (hit && e.type === 'mousedown') {
+      // Don't interfere with double-click detection
+      // If input has text ready, don't start throw on stone click
+      return;
+    }
+
+    // ── Throw a new stone from the input ──
     if (!pendingThrow && inputEl.value.trim()) {
       doThrow(inputEl.value.trim());
     }
-    if (!pendingThrow) return; // nothing to throw
-    const pos = getEventPos(e);
+    if (!pendingThrow) return;
     throwOrigin = { x: pos.x, y: pos.y, time: Date.now() };
     throwCurrent = { x: pos.x, y: pos.y };
     e.preventDefault();
   }
 
+  // Mouse mode: double-click on stone opens panel
+  canvas.addEventListener('dblclick', (e) => {
+    if (!isActive) return;
+    const pos = getEventPos(e);
+    const hit = stoneAt(pos.x, pos.y);
+    if (hit) openContentPanel(hit);
+  });
+
   canvas.addEventListener('mousemove', (e) => {
     if (throwOrigin) {
       throwCurrent = { x: e.clientX, y: e.clientY };
     }
-    // Cursor hint: stones are openable — but only hint, don't reveal which have text
     if (!throwOrigin && isActive) {
-      const px = e.clientX, py = e.clientY;
-      let over = false;
-      for (const s of stones) {
-        if (Math.sqrt((s.body.position.x - px) ** 2 + (s.body.position.y - py) ** 2) < s.radius + 8) { over = true; break; }
-      }
-      if (!over) for (const s of rubble) {
-        if (Math.sqrt((s.body.position.x - px) ** 2 + (s.body.position.y - py) ** 2) < s.radius + 8) { over = true; break; }
-      }
-      canvas.style.cursor = over ? 'pointer' : '';
+      const hit = stoneAt(e.clientX, e.clientY);
+      canvas.style.cursor = hit ? 'pointer' : '';
     }
   });
+
+  // Touch move: drag stone or aim throw
   canvas.addEventListener('touchmove', (e) => {
-    if (throwOrigin && e.touches.length) {
+    if (touchStone && e.touches.length === 1) {
+      const pos = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+      const dx = pos.x - touchStartPos.x;
+      const dy = pos.y - touchStartPos.y;
+      if (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD) {
+        touchMoved = true;
+      }
+      // Move stone body to follow finger
+      Body.setPosition(touchStone.body, { x: pos.x, y: Math.max(20, pos.y) });
+      touchLastPos = { x: pos.x, y: pos.y };
+      touchLastTime = Date.now();
+      e.preventDefault();
+    } else if (throwOrigin && e.touches.length) {
       throwCurrent = { x: e.touches[0].clientX, y: e.touches[0].clientY };
     }
   }, { passive: false });
 
   function handleThrowEnd(e) {
+    const pos = e.changedTouches ? { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY }
+      : { x: e.clientX, y: e.clientY };
+
+    // ── Release dragged stone ──
+    if (touchStone) {
+      Body.setStatic(touchStone.body, false);
+      if (touchMoved) {
+        // Apply throw velocity based on last movement
+        const dt = Math.max((Date.now() - touchLastTime), 16);
+        const dx = touchLastPos.x - (touchStartPos ? touchStartPos.x : touchLastPos.x - 10);
+        const dy = touchLastPos.y - (touchStartPos ? touchStartPos.y : touchLastPos.y - 10);
+        const speedX = (dx / dt) * 8;
+        const speedY = Math.min(8, (dy / dt) * 5);
+        Body.setVelocity(touchStone.body, { x: speedX, y: speedY });
+        Body.setAngularVelocity(touchStone.body, -speedX * 0.04);
+        // If it's a real stone (not rubble), add wear marks
+        const realStone = stones.find(s => s === touchStone);
+        if (realStone) {
+          addWearMark(touchStone.body.position.x, touchStone.body.position.y, 3);
+          markMossVisited(touchStone.body.position.x, touchStone.body.position.y);
+        }
+      } else {
+        // Tap (no drag) — check for double-tap
+        if (touchStone === lastTapStone && Date.now() - lastTapTime < DOUBLE_TAP_MS) {
+          openContentPanel(touchStone);
+          lastTapStone = null;
+        } else {
+          lastTapStone = touchStone;
+          lastTapTime = Date.now();
+        }
+      }
+      touchStone = null;
+      touchStartPos = null;
+      touchLastPos = null;
+      e.preventDefault();
+      return;
+    }
+
+    // ── Release thrown stone ──
     if (!isActive || !throwOrigin || !pendingThrow) {
       throwOrigin = null;
       throwCurrent = null;
       return;
     }
-    const pos = e.touches && e.changedTouches
-      ? { x: e.changedTouches[0].clientX, y: e.changedTouches[0].clientY }
-      : (e.type === 'touchend' ? throwOrigin : { x: e.clientX, y: e.clientY });
 
     const dx = pos.x - throwOrigin.x;
     const dy = pos.y - throwOrigin.y;
@@ -1760,6 +1869,14 @@
   }
 
   function handleThrowCancel() {
+    // Release any stone being dragged via touch
+    if (touchStone) {
+      Body.setStatic(touchStone.body, false);
+      Body.setVelocity(touchStone.body, { x: 0, y: 0 });
+      touchStone = null;
+      touchStartPos = null;
+      touchLastPos = null;
+    }
     throwOrigin = null;
     throwCurrent = null;
   }
@@ -1813,8 +1930,62 @@
       (clearToast && clearToast.classList.contains('show'));
   }
 
+  // ── Physical strata: buried stones can't be read ──
+  // Matter.js naturally piles stones. A stone hidden beneath others
+  // is "buried" — you must move the stones above it to read it.
+  // This is not a rule we enforce; it's a consequence of physics.
+  function isStoneBuried(stone) {
+    const sbody = stone.body;
+    const sx = sbody.position.x;
+    const sy = sbody.position.y;
+    const sr = stone.radius || 25;
+
+    // Check real stones
+    for (const s of stones) {
+      if (s === stone) continue;
+      const dy = sy - s.body.position.y; // positive = other stone is above
+      if (dy > sr * 0.6 && Math.abs(s.body.position.x - sx) < s.radius + sr - 4) {
+        return true;
+      }
+    }
+    // Check rubble too — any rock on top blocks reading
+    for (const r of rubble) {
+      if (r === stone) continue;
+      const rr = r.radius || 18;
+      const dy = sy - r.body.position.y;
+      if (dy > sr * 0.5 && Math.abs(r.body.position.x - sx) < rr + sr - 2) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   function openContentPanel(stone) {
     closePanelForStone(stone);
+
+    // Buried stones — you can see the stone but can't open it.
+    // The panel appears briefly as a whisper: "it's under there."
+    if (!stone.isEmpty && stone.text && isStoneBuried(stone)) {
+      const panel = document.createElement('div');
+      panel.className = 'content-panel light';
+      panel.style.opacity = '0';
+      panel.innerHTML = `<div class="panel-close">×</div><div class="panel-body" style="color:#8a7060;text-align:center;padding:24px 0;font-size:15px;letter-spacing:2px;">被埋住了<div style="font-size:11px;opacity:0.5;margin-top:8px;letter-spacing:0;">搬开上面的石头</div></div>`;
+      document.body.appendChild(panel);
+      panel.style.left = (stone.body.position.x - 110) + 'px';
+      panel.style.top = (stone.body.position.y - stone.radius - 60) + 'px';
+      requestAnimationFrame(() => { panel.style.opacity = '0.7'; panel.classList.add('active'); });
+      // Fades quickly — you found an obstacle, not content
+      setTimeout(() => {
+        panel.style.transition = 'opacity 0.8s ease';
+        panel.style.opacity = '0';
+        setTimeout(() => panel.remove(), 800);
+      }, 2000);
+      panel.querySelector('.panel-close').addEventListener('click', (e) => {
+        e.stopPropagation();
+        panel.remove();
+      });
+      return;
+    }
 
     // Empty stones — rubble with no text. You cracked open a rock and found
     // only rock. The panel is almost transparent, almost empty, and fades
@@ -1971,6 +2142,18 @@
       p.lastMouseY = e.clientY;
     });
 
+    // Touch drag support — panels are draggable on mobile too
+    panel.addEventListener('touchstart', (e) => {
+      if (e.target.classList.contains('panel-close') || e.target.classList.contains('share-rub')) return;
+      if (e.touches.length === 1) {
+        p.dragging = true;
+        panel.classList.add('dragging');
+        p.lastMouseX = e.touches[0].clientX;
+        p.lastMouseY = e.touches[0].clientY;
+        e.preventDefault();
+      }
+    }, { passive: false });
+
     pushOverlayState();
     stone.readAt = Date.now();
     // Reading leaves warmth — the stone remembers being seen
@@ -2052,6 +2235,28 @@
       p.el.classList.remove('dragging');
     }
   });
+  // Touch equivalents for panel dragging
+  document.addEventListener('touchmove', (e) => {
+    for (const p of panels) {
+      if (p.dragging && e.touches.length === 1) {
+        const dx = e.touches[0].clientX - p.lastMouseX;
+        const dy = e.touches[0].clientY - p.lastMouseY;
+        p.vx += dx * 0.15 / p.mass;
+        p.vy += dy * 0.15 / p.mass;
+        p.x += dx;
+        p.y += dy;
+        p.lastMouseX = e.touches[0].clientX;
+        p.lastMouseY = e.touches[0].clientY;
+        e.preventDefault();
+      }
+    }
+  }, { passive: false });
+  document.addEventListener('touchend', () => {
+    for (const p of panels) {
+      p.dragging = false;
+      p.el.classList.remove('dragging');
+    }
+  });
 
   // ── Double-click stone to open content panel ──
   // Checks text stones first (they're drawn on top), then rubble.
@@ -2083,10 +2288,34 @@
   // ── Gate ──
   const gateEl = document.getElementById('gate');
   const gateEnter = document.getElementById('gate-enter');
+  const gateStatsEl = document.getElementById('gate-stats');
   const gateDustCanvas = document.getElementById('gate-dust');
   const gateDustCtx = gateDustCanvas.getContext('2d');
   gateDustCanvas.width = window.innerWidth;
   gateDustCanvas.height = window.innerHeight;
+
+  // Fetch live stats from the worker and update the gate footer
+  async function updateGateStats() {
+    try {
+      const res = await fetch(POOL_API + '/stats');
+      if (!res.ok) return;
+      const data = await res.json();
+      const dau = data.dau || 0;
+      const recent = await fetch(POOL_API + '/active').then(r => r.json()).catch(() => ({}));
+      const nowCount = recent.activeCount || 0;
+      // Build the whisper line
+      let line = '';
+      if (nowCount > 0) {
+        line = '此刻 ' + nowCount + ' 人在堆旁  ·  ';
+      }
+      line += '今日 ' + dau + ' 人来过';
+      gateStatsEl.textContent = line;
+      gateStatsEl.classList.add('has-data');
+    } catch (e) {
+      // Silently fail — stats are a bonus, not a requirement
+    }
+  }
+  updateGateStats();
 
   // Gate floating dust particles
   const gateDust = [];
@@ -2298,7 +2527,6 @@
   // ── Ancestor stones — first-time visitors find a pile that already has history ──
   // Seeded from the commons (real stones people offered) when reachable,
   // otherwise from the house stones below.
-  const POOL_API = 'https://stonepool.928387010.workers.dev';
 
   async function seedAncestorStones() {
     let common = null;
