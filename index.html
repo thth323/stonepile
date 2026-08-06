@@ -2544,7 +2544,7 @@
     // Fallback: show local stone count so "正在计数..." never hangs forever
     let localCount = 0;
     try {
-      const raw = localStorage.getItem(STORAGE_KEY);
+      const raw = localStorage.getItem('stonepile_v3');
       if (raw) {
         const saved = JSON.parse(raw);
         if (saved && Array.isArray(saved.stones)) localCount = saved.stones.length;
