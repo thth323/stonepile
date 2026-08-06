@@ -2123,11 +2123,22 @@
 
   gateEnter.addEventListener('click', () => {
     if (isActive) return;
+    const isReturning = localStorage.getItem('stonepile-entered');
     gateEl.classList.add('hidden');
     localStorage.setItem('stonepile-entered', '1');
     ensureAudio(); // Unlock audio on first user gesture
     // Fetch environment state and start pulsing
-    fetchEnvState().then(() => { if (!envState.dormant) sendPulse(); });
+    fetchEnvState().then(() => {
+      if (!envState.dormant) sendPulse();
+      // Recent activity shadow — a subtle flicker at the edge of vision
+      if (envState.recent) {
+        setTimeout(() => {
+          const shadow = document.getElementById('vignette');
+          shadow.style.boxShadow = 'inset 0 0 120px 40px rgba(200,160,110,0.08)';
+          setTimeout(() => { shadow.style.boxShadow = ''; }, 2000);
+        }, 1200);
+      }
+    });
     // Warmth overlay — the pile remembers you
     const savedWarmth = parseFloat(localStorage.getItem('stonepile-lastWarmth')) || 0;
     if (savedWarmth > 0.05) {
@@ -2135,6 +2146,21 @@
       overlay.style.opacity = Math.min(0.6, savedWarmth * 0.8);
       setTimeout(() => { overlay.style.opacity = '0'; }, 300);
       setTimeout(() => { overlay.classList.remove('warm'); }, 3300);
+    }
+    // Snapshot — show the pile as you last saw it, then wake up
+    const snapData = localStorage.getItem('stonepile-snapshot');
+    if (snapData) {
+      const snapCanvas = document.getElementById('snapshot-canvas');
+      snapCanvas.width = window.innerWidth;
+      snapCanvas.height = window.innerHeight;
+      const snapImg = new Image();
+      snapImg.onload = () => {
+        const sctx = snapCanvas.getContext('2d');
+        sctx.drawImage(snapImg, 0, 0, snapCanvas.width, snapCanvas.height);
+        snapCanvas.classList.add('flash');
+        setTimeout(() => { snapCanvas.classList.remove('flash'); }, 1200);
+      };
+      snapImg.src = snapData;
     }
     setTimeout(() => {
       isActive = true;
@@ -2145,7 +2171,7 @@
       document.getElementById('stone-count').classList.add('show');
       document.getElementById('vignette').classList.add('show');
     }, 1000);
-    if (!isDemo) {
+    if (!isDemo && !isReturning) {
       addStone('你好', canvas.width * 0.35, groundY - 40, 0, 0.3, 0.02);
       setTimeout(() => {
         addStone('世界', canvas.width * 0.55, groundY - 90, 0.5, 0.2, -0.01);
@@ -2426,48 +2452,7 @@
     } catch (e) { /* malformed hash — ignore silently */ }
     history.replaceState(null, '', location.pathname);
   }
-  // Only returning visitors skip the gate — first-timers always see it
-  if (localStorage.getItem('stonepile-entered')) {
-    gateEl.style.display = 'none';
-    isActive = true;
-    inputBar.classList.add('visible');
-    inputVisible = true;
-    document.getElementById('stone-count').classList.add('show');
-    document.getElementById('vignette').classList.add('show');
-    // Returning visitor — fetch environment, send pulse, apply remembered warmth
-    fetchEnvState().then(() => {
-      if (!envState.dormant) sendPulse();
-      // Recent activity shadow — a subtle flicker at the edge of vision
-      if (envState.recent) {
-        setTimeout(() => {
-          const shadow = document.getElementById('vignette');
-          shadow.style.boxShadow = 'inset 0 0 120px 40px rgba(200,160,110,0.08)';
-          setTimeout(() => { shadow.style.boxShadow = ''; }, 2000);
-        }, 1200);
-      }
-    });
-    const savedWarmth = parseFloat(localStorage.getItem('stonepile-lastWarmth')) || 0;
-    if (savedWarmth > 0.05) {
-      const overlay = document.getElementById('warmth-overlay');
-      overlay.style.opacity = Math.min(0.5, savedWarmth * 0.7);
-      setTimeout(() => { overlay.style.opacity = '0'; }, 200);
-    }
-    // Snapshot — show the pile as you last saw it, then wake up
-    const snapData = localStorage.getItem('stonepile-snapshot');
-    if (snapData) {
-      const snapCanvas = document.getElementById('snapshot-canvas');
-      snapCanvas.width = window.innerWidth;
-      snapCanvas.height = window.innerHeight;
-      const snapImg = new Image();
-      snapImg.onload = () => {
-        const sctx = snapCanvas.getContext('2d');
-        sctx.drawImage(snapImg, 0, 0, snapCanvas.width, snapCanvas.height);
-        snapCanvas.classList.add('flash');
-        setTimeout(() => { snapCanvas.classList.remove('flash'); }, 1200);
-      };
-      snapImg.src = snapData;
-    }
-  }
+  // Everyone sees the gate on every visit — the gate IS the home page.
 
   // ── Clear pile ──
   const stoneCountEl = document.getElementById('stone-count');
