@@ -1793,17 +1793,18 @@
   // ── Content Panels (floating reading surfaces with physics) ──
   let panels = [];
 
-  // Browser back-button guard: pushing history state when overlays open
-  // lets the back button close them instead of leaving the page.
+  // Browser back-button guard: popstate fires AFTER the browser has already
+  // moved back in history and cannot be cancelled. To intercept: (1) push an
+  // overlay state when panels open, (2) in popstate, close overlays then
+  // re-push to prevent the browser from leaving. The real "back to previous
+  // site" only happens when the user clicks back with no overlays open.
   function pushOverlayState() {
-    if (!history.state || !history.state.spOverlay) {
-      history.pushState({ spOverlay: true }, '');
-    }
+    history.pushState({ spOverlay: true }, '');
   }
   function closeAllOverlays() {
     while (panels.length > 0) removePanel(panels[panels.length - 1]);
-    if (commonsPanel.classList.contains('open')) commonsPanel.classList.remove('open');
-    clearToast.classList.remove('show');
+    if (commonsPanel && commonsPanel.classList.contains('open')) commonsPanel.classList.remove('open');
+    if (clearToast) clearToast.classList.remove('show');
   }
 
   function openContentPanel(stone) {
@@ -2374,9 +2375,18 @@
     if (e.key === 'Escape') closeAllOverlays();
   });
 
-  // Browser back button closes overlays before leaving the page
+  // Browser back button closes overlays before leaving the page.
+  // popstate fires AFTER the history entry has been popped — we can't
+  // prevent the navigation, but we can shove a new state in so the
+  // browser stays on the current page. Without this, closing the panel
+  // in popstate is useless: the browser already left.
   window.addEventListener('popstate', (e) => {
-    if (e.state && e.state.spOverlay) closeAllOverlays();
+    if (e.state && e.state.spOverlay) {
+      closeAllOverlays();
+      // Re-push a clean state so the next real "back" goes to the
+      // previous site (or browser home) instead of leaving immediately.
+      history.pushState({ spBase: true }, '');
+    }
   });
 
   // ── Startup ──
