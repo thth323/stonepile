@@ -2526,19 +2526,33 @@
 
   async function updateGateStats() {
     const data = await fetchStats();
-    if (!data) return;
-    cachedStats = data;
-    const dau = data.dau || 0;
-    const nowCount = data.dates[0] ? data.dates[0].count : 0;
-    let line = '';
-    if (nowCount > 0) {
-      line = '此刻 ' + nowCount + ' 人在堆旁  ·  ';
+    if (data) {
+      cachedStats = data;
+      const dau = data.dau || 0;
+      const nowCount = data.dates[0] ? data.dates[0].count : 0;
+      let line = '';
+      if (nowCount > 0) {
+        line = '此刻 ' + nowCount + ' 人在堆旁  ·  ';
+      }
+      line += '今日 ' + dau + ' 人来过';
+      gateStatsEl.textContent = line;
+      gateStatsEl.classList.add('has-data');
+      gateStatsEl.style.cursor = 'pointer';
+      gateStatsEl.title = '点击查看统计';
+      return;
     }
-    line += '今日 ' + dau + ' 人来过';
-    gateStatsEl.textContent = line;
-    gateStatsEl.classList.add('has-data');
-    gateStatsEl.style.cursor = 'pointer';
-    gateStatsEl.title = '点击查看统计';
+    // Fallback: show local stone count so "正在计数..." never hangs forever
+    let localCount = 0;
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const saved = JSON.parse(raw);
+        if (saved && Array.isArray(saved.stones)) localCount = saved.stones.length;
+      }
+    } catch (e) {}
+    gateStatsEl.textContent = (localCount > 0 ? localCount + ' 块石头在此' : '石头等你来摞');
+    gateStatsEl.style.cursor = 'default';
+    gateStatsEl.title = '';
   }
 
   function renderStatsOverlay(data) {
