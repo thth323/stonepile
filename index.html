@@ -2138,6 +2138,8 @@
     }
     setTimeout(() => {
       isActive = true;
+      // Push state so browser back returns to the gate instead of leaving
+      history.pushState({ spInPile: true }, '');
       inputBar.classList.add('visible');
       inputVisible = true;
       document.getElementById('stone-count').classList.add('show');
@@ -2381,17 +2383,18 @@
     if (e.key === 'Escape') closeAllOverlays();
   });
 
-  // Browser back button closes overlays before leaving the page.
-  // popstate fires AFTER the history entry has been popped — the browser
-  // has already moved. We can't cancel it, but if overlays are still open
-  // we close them and push a new guard state so the browser stays here.
-  // Only when no overlay is open do we let the browser continue back.
+  // Browser back button: closes overlays first, then returns to the gate
+  // (home page), and only leaves the site when already at the gate.
   window.addEventListener('popstate', (e) => {
     if (hasOpenOverlay()) {
       closeAllOverlays();
-      // Push a guard state to keep the browser on this page.
-      // The next back will pop this guard, see no overlays, and leave.
       history.pushState({ spGuard: true }, '');
+    } else if (isActive) {
+      // Inside the pile — go back to the gate (home page).
+      gateEl.style.display = '';
+      gateEl.classList.remove('hidden');
+      isActive = false;
+      history.pushState({ spAtGate: true }, '');
     }
   });
 
