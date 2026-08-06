@@ -78,6 +78,74 @@
     #gate .enter { font-size: 11px; letter-spacing: 8px; }
   }
 
+  /* Stats overlay — dim panel with chart, opened from gate footer */
+  #stats-overlay {
+    position: fixed; inset: 0; z-index: 200;
+    background: rgba(8,6,4,0.92); display: none;
+    flex-direction: column; align-items: center; justify-content: center;
+    font-family: 'Cormorant Garamond', 'Noto Serif SC', serif;
+  }
+  #stats-overlay.open { display: flex; }
+  #stats-overlay .stats-panel {
+    width: 90vw; max-width: 640px; max-height: 80vh; overflow-y: auto;
+    padding: 32px 28px 24px;
+    border: 1px solid rgba(100,80,60,0.3);
+    border-radius: 2px;
+  }
+  #stats-overlay .stats-title {
+    text-align: center; font-size: 20px; letter-spacing: 6px;
+    color: #A09078; margin-bottom: 8px;
+  }
+  #stats-overlay .stats-subtitle {
+    text-align: center; font-size: 11px; color: #5A5044;
+    letter-spacing: 3px; margin-bottom: 24px;
+  }
+  #stats-overlay .stats-big {
+    display: flex; gap: 24px; justify-content: center; margin-bottom: 28px;
+  }
+  #stats-overlay .stat-card {
+    text-align: center; padding: 12px 20px;
+    border: 1px solid rgba(80,60,40,0.2); border-radius: 2px; min-width: 80px;
+  }
+  #stats-overlay .stat-card .num {
+    font-size: 32px; color: #C4A878; font-weight: 600; line-height: 1.1;
+  }
+  #stats-overlay .stat-card .label {
+    font-size: 10px; color: #6A5A48; letter-spacing: 2px; margin-top: 4px;
+  }
+  #stats-overlay .stats-chart {
+    display: flex; align-items: flex-end; gap: 3px; height: 100px;
+    padding: 0 8px; justify-content: center;
+  }
+  #stats-overlay .stats-chart .bar-wrap {
+    display: flex; flex-direction: column; align-items: center; flex: 1;
+    min-width: 0; max-width: 28px;
+  }
+  #stats-overlay .stats-chart .bar {
+    width: 100%; min-height: 2px;
+    background: linear-gradient(to top, #3A3028, #8A7050);
+    border-radius: 1px 1px 0 0; transition: height 0.6s ease;
+  }
+  #stats-overlay .stats-chart .bar.today {
+    background: linear-gradient(to top, #5A4030, #C4A070);
+  }
+  #stats-overlay .stats-chart .bar-label {
+    font-size: 8px; color: #5A5044; letter-spacing: 1px;
+    margin-top: 4px; writing-mode: horizontal-tb; text-align: center;
+  }
+  #stats-overlay .stats-close {
+    display: block; margin: 20px auto 0; background: none; border: none;
+    color: #6A5A48; font-size: 13px; letter-spacing: 4px;
+    cursor: pointer; font-family: inherit; padding: 6px 20px;
+    border-bottom: 1px solid transparent; transition: all 0.4s;
+  }
+  #stats-overlay .stats-close:hover { color: #C4A878; border-color: #6A5A48; }
+  @media (max-width: 480px) {
+    #stats-overlay .stats-panel { padding: 20px 14px 16px; }
+    #stats-overlay .stat-card { padding: 8px 12px; min-width: 60px; }
+    #stats-overlay .stat-card .num { font-size: 24px; }
+  }
+
   /* Input bar — ghost writing on the ground, not a form */
   #input-bar {
     position: fixed; bottom: -120px; left: 0; right: 0;
@@ -365,6 +433,17 @@
   <div class="verse">这里什么都没有<br>只有前人扔下的石头<br>每个人，都可以留下一块</div>
   <div class="enter" id="gate-enter">进 入</div>
   <div class="gate-stats" id="gate-stats"></div>
+</div>
+
+<!-- Stats overlay — click gate stats to open -->
+<div id="stats-overlay">
+  <div class="stats-panel">
+    <div class="stats-title">石 堆</div>
+    <div class="stats-subtitle" id="stats-subtitle">— 记 录 —</div>
+    <div class="stats-big" id="stats-big"></div>
+    <div class="stats-chart" id="stats-chart"></div>
+    <button class="stats-close" id="stats-close">关 闭</button>
+  </div>
 </div>
 
 <div id="stone-count">石头：0</div>
@@ -1923,11 +2002,13 @@
     while (panels.length > 0) removePanel(panels[panels.length - 1]);
     if (commonsPanel && commonsPanel.classList.contains('open')) commonsPanel.classList.remove('open');
     if (clearToast) clearToast.classList.remove('show');
+    if (statsOverlay) statsOverlay.classList.remove('open');
   }
   function hasOpenOverlay() {
     return panels.length > 0 ||
       (commonsPanel && commonsPanel.classList.contains('open')) ||
-      (clearToast && clearToast.classList.contains('show'));
+      (clearToast && clearToast.classList.contains('show')) ||
+      (statsOverlay && statsOverlay.classList.contains('open'));
   }
 
   // ── Physical strata: buried stones can't be read ──
@@ -2295,27 +2376,94 @@
   gateDustCanvas.height = window.innerHeight;
 
   // Fetch live stats from the worker and update the gate footer
-  async function updateGateStats() {
+  const statsOverlay = document.getElementById('stats-overlay');
+  const statsBig = document.getElementById('stats-big');
+  const statsChart = document.getElementById('stats-chart');
+  const statsSubtitle = document.getElementById('stats-subtitle');
+  const statsClose = document.getElementById('stats-close');
+
+  let cachedStats = null; // Avoid re-fetching on every open
+
+  async function fetchStats() {
     try {
       const res = await fetch(POOL_API + '/stats');
-      if (!res.ok) return;
-      const data = await res.json();
-      const dau = data.dau || 0;
-      const recent = await fetch(POOL_API + '/active').then(r => r.json()).catch(() => ({}));
-      const nowCount = recent.activeCount || 0;
-      // Build the whisper line
-      let line = '';
-      if (nowCount > 0) {
-        line = '此刻 ' + nowCount + ' 人在堆旁  ·  ';
-      }
-      line += '今日 ' + dau + ' 人来过';
-      gateStatsEl.textContent = line;
-      gateStatsEl.classList.add('has-data');
-    } catch (e) {
-      // Silently fail — stats are a bonus, not a requirement
-    }
+      if (!res.ok) return null;
+      return await res.json();
+    } catch (e) { return null; }
   }
+
+  async function updateGateStats() {
+    const data = await fetchStats();
+    if (!data) return;
+    cachedStats = data;
+    const dau = data.dau || 0;
+    const nowCount = data.dates[0] ? data.dates[0].count : 0;
+    let line = '';
+    if (nowCount > 0) {
+      line = '此刻 ' + nowCount + ' 人在堆旁  ·  ';
+    }
+    line += '今日 ' + dau + ' 人来过';
+    gateStatsEl.textContent = line;
+    gateStatsEl.classList.add('has-data');
+    gateStatsEl.style.cursor = 'pointer';
+    gateStatsEl.title = '点击查看统计';
+  }
+
+  function renderStatsOverlay(data) {
+    if (!data) return;
+    statsSubtitle.textContent = '\u2014 ' + data.dates.length + ' \u65e5 \u2014';
+    // Big numbers
+    statsBig.innerHTML = '';
+    [
+      ['\u4eca\u65e5', '\u65e5\u6d3b', data.dau],
+      ['\u8fd1 7 \u65e5', '\u5468\u6d3b', data.wau],
+      ['\u8fd1 30 \u65e5', '\u6708\u6d3b', data.mau],
+    ].forEach(function(card) {
+      var el = document.createElement('div');
+      el.className = 'stat-card';
+      el.innerHTML = '<div class="num">' + (card[2] || 0) + '</div><div class="label">' + card[0] + '</div>';
+      statsBig.appendChild(el);
+    });
+
+    // Bar chart — show 14 days
+    statsChart.innerHTML = '';
+    var days = data.dates.slice(0, 14).reverse();
+    var maxCount = 1;
+    days.forEach(function(d) { if (d.count > maxCount) maxCount = d.count; });
+    days.forEach(function(d, i) {
+      var wrap = document.createElement('div');
+      wrap.className = 'bar-wrap';
+      var h = Math.max(2, Math.round((d.count / maxCount) * 92));
+      var isToday = i === days.length - 1;
+      var label = d.date.slice(5);
+      wrap.innerHTML =
+        '<div class="bar' + (isToday ? ' today' : '') + '" style="height:' + h + 'px" title="' + d.date + ': ' + d.count + '"></div>' +
+        '<div class="bar-label">' + label + '</div>';
+      statsChart.appendChild(wrap);
+    });
+  }
+
   updateGateStats();
+
+  // Open stats overlay when clicking gate stats
+  gateStatsEl.addEventListener('click', async function() {
+    if (!cachedStats) {
+      cachedStats = await fetchStats();
+    }
+    if (cachedStats) {
+      renderStatsOverlay(cachedStats);
+      statsOverlay.classList.add('open');
+      pushOverlayState();
+    }
+  });
+
+  // Close stats overlay
+  statsClose.addEventListener('click', function() {
+    statsOverlay.classList.remove('open');
+  });
+  statsOverlay.addEventListener('click', function(e) {
+    if (e.target === statsOverlay) statsOverlay.classList.remove('open');
+  });
 
   // Gate floating dust particles
   const gateDust = [];
