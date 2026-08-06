@@ -63,11 +63,11 @@
   }
   #gate .enter:hover { color: #C4A878; border-color: #6A5A48; }
   #gate .gate-stats {
-    margin-top: 40px; color: #3A342E; font-size: 11px;
+    margin-top: 40px; color: #8A8070; font-size: 11px;
     letter-spacing: 2px; min-height: 18px; text-align: center;
-    transition: color 0.8s ease;
+    transition: color 0.8s ease; cursor: pointer;
   }
-  #gate .gate-stats.has-data { color: #5A5044; }
+  #gate .gate-stats:hover { color: #C4A878; }
   #gate .gate-dust {
     position: absolute; top: 0; left: 0; width: 100%; height: 100%;
     pointer-events: none; z-index: 0; opacity: 0.6;
@@ -432,7 +432,7 @@
   <div class="subtitle">S T O N E P I L E</div>
   <div class="verse">这里什么都没有<br>只有前人扔下的石头<br>每个人，都可以留下一块</div>
   <div class="enter" id="gate-enter">进 入</div>
-  <div class="gate-stats" id="gate-stats"></div>
+  <div class="gate-stats" id="gate-stats">正在计数...</div>
 </div>
 
 <!-- Stats overlay — click gate stats to open -->
