@@ -1909,10 +1909,18 @@
       return;
     }
 
-    // ── Mouse click on stone: handled by dblclick ──
+    // ── Mouse drag on stone: pick up like touch ──
     if (hit && e.type === 'mousedown') {
-      // Don't interfere with double-click detection
-      // If input has text ready, don't start throw on stone click
+      if (pendingThrow) { doThrow(inputEl.value.trim()); return; }
+      touchStone = hit;
+      touchStartPos = { x: pos.x, y: pos.y };
+      touchStartTime = Date.now();
+      touchMoved = false;
+      touchLastPos = { x: pos.x, y: pos.y };
+      touchLastTime = Date.now();
+      Body.setStatic(touchStone.body, true);
+      canvas.style.cursor = 'grabbing';
+      e.preventDefault();
       return;
     }
 
@@ -1935,10 +1943,21 @@
   });
 
   canvas.addEventListener('mousemove', (e) => {
-    if (throwOrigin) {
+    // ── Mouse drag stone ──
+    if (touchStone) {
+      const pos = { x: e.clientX, y: e.clientY };
+      const dx = pos.x - touchStartPos.x;
+      const dy = pos.y - touchStartPos.y;
+      if (Math.abs(dx) > DRAG_THRESHOLD || Math.abs(dy) > DRAG_THRESHOLD) {
+        touchMoved = true;
+      }
+      Body.setPosition(touchStone.body, { x: pos.x, y: Math.max(20, pos.y) });
+      touchLastPos = { x: pos.x, y: pos.y };
+      touchLastTime = Date.now();
+    } else if (throwOrigin) {
       throwCurrent = { x: e.clientX, y: e.clientY };
     }
-    if (!throwOrigin && isActive) {
+    if (!throwOrigin && !touchStone && isActive) {
       const hit = stoneAt(e.clientX, e.clientY);
       canvas.style.cursor = hit ? 'pointer' : '';
     }
@@ -1986,15 +2005,19 @@
           markMossVisited(touchStone.body.position.x, touchStone.body.position.y);
         }
       } else {
-        // Tap (no drag) — check for double-tap
-        if (touchStone === lastTapStone && Date.now() - lastTapTime < DOUBLE_TAP_MS) {
-          openContentPanel(touchStone);
-          lastTapStone = null;
-        } else {
-          lastTapStone = touchStone;
-          lastTapTime = Date.now();
+        // Tap (no drag) — check for double-tap (touch only; mouse uses native dblclick)
+        if (e.changedTouches) {
+          if (touchStone === lastTapStone && Date.now() - lastTapTime < DOUBLE_TAP_MS) {
+            openContentPanel(touchStone);
+            lastTapStone = null;
+          } else {
+            lastTapStone = touchStone;
+            lastTapTime = Date.now();
+          }
         }
       }
+      // Release mouse drag cursor
+      if (!e.changedTouches) canvas.style.cursor = '';
       touchStone = null;
       touchStartPos = null;
       touchLastPos = null;
