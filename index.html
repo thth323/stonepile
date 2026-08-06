@@ -55,11 +55,13 @@
     margin-bottom: 56px;
   }
   #gate .enter {
-    color: #6A5E50; font-size: 12px;
+    color: #6A5E50; font-size: 13px;
     letter-spacing: 10px; cursor: pointer;
-    padding: 8px 0;
+    padding: 12px 0;
     border-bottom: 1px solid #352E26;
     transition: color 0.5s, border-color 0.5s;
+    min-height: 44px; /* WCAG touch target */
+    display: flex; align-items: center; justify-content: center;
   }
   #gate .enter:hover { color: #C4A878; border-color: #6A5A48; }
   #gate .gate-stats {
@@ -71,6 +73,20 @@
     z-index: 2;
   }
   #gate .gate-stats:hover { color: #F0E8D8; }
+
+  /* Keyboard focus ring — subtle but visible for accessibility */
+  *:focus-visible { outline: 2px solid rgba(200, 170, 130, 0.7); outline-offset: 3px; }
+  #gate .enter:focus-visible { outline-color: rgba(220, 200, 160, 0.8); }
+
+  /* Respect user motion preferences */
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+
   #gate .gate-dust {
     position: absolute; top: 0; left: 0; width: 100%; height: 100%;
     pointer-events: none; z-index: 0; opacity: 0.6;
@@ -84,11 +100,13 @@
   /* Stats overlay — dim panel with chart, opened from gate footer */
   #stats-overlay {
     position: fixed; inset: 0; z-index: 200;
-    background: rgba(8,6,4,0.92); display: none;
-    flex-direction: column; align-items: center; justify-content: center;
+    background: rgba(8,6,4,0.92);
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
     font-family: 'Cormorant Garamond', 'Noto Serif SC', serif;
+    opacity: 0; pointer-events: none;
+    transition: opacity 0.35s ease;
   }
-  #stats-overlay.open { display: flex; }
+  #stats-overlay.open { opacity: 1; pointer-events: auto; }
   #stats-overlay .stats-panel {
     width: 90vw; max-width: 640px; max-height: 80vh; overflow-y: auto;
     padding: 32px 28px 24px;
@@ -218,6 +236,8 @@
     color: #5C554D; font-size: 13px; z-index: 50;
     opacity: 0; transition: opacity 0.6s ease;
     letter-spacing: 1px; cursor: pointer; user-select: none;
+    padding: 8px 12px; min-height: 44px;
+    display: flex; align-items: center;
   }
   #stone-count.show { opacity: 0.7; }
   #stone-count:hover { color: #C4653A; }
@@ -434,8 +454,8 @@
   <div class="title">石 堆</div>
   <div class="subtitle">S T O N E P I L E</div>
   <div class="verse">这里什么都没有<br>只有前人扔下的石头<br>每个人，都可以留下一块</div>
-  <div class="enter" id="gate-enter">进 入</div>
-  <div class="gate-stats" id="gate-stats">正在计数...</div>
+  <div class="enter" id="gate-enter" tabindex="0" role="button" aria-label="进入石堆">进 入</div>
+  <div class="gate-stats" id="gate-stats" tabindex="0" role="button" aria-label="查看访客统计">正在计数...</div>
 </div>
 
 <!-- Stats overlay — click gate stats to open -->
@@ -449,8 +469,8 @@
   </div>
 </div>
 
-<div id="stone-count">石头：0</div>
-<div id="commons-toggle" class="show">公堆 ↵</div>
+<div id="stone-count" tabindex="0" role="button" aria-label="清空石堆">石头：0</div>
+<div id="commons-toggle" class="show" tabindex="0" role="button" aria-label="查看公堆">公堆 ↵</div>
 <div id="clear-toast">
   <span>清空所有石头？</span>
   <button id="clear-yes">确认</button>
@@ -500,10 +520,11 @@
   });
 
   // ── Ground — a shallow invisible bowl, so stones gather into a PILE ──
-  const groundY = canvas.height * 0.78;   // surface height at the far edges
-  const groundH = canvas.height * 0.22;
-  const bowlDepth = Math.min(canvas.height * 0.14, groundH * 0.62);
-  const bowlHalf = canvas.width * 0.23;   // narrow basin — the pile grows UP, not OUT
+  // Must be mutable — rebuilt on resize when canvas dimensions change
+  let groundY = canvas.height * 0.78;   // surface height at the far edges
+  let groundH = canvas.height * 0.22;
+  let bowlDepth = Math.min(canvas.height * 0.14, groundH * 0.62);
+  let bowlHalf = canvas.width * 0.23;   // narrow basin — the pile grows UP, not OUT
 
   // The one true surface curve — physics and visuals both follow this.
   // V-leaning basin: steep near the center so stones slide home, soft rim.
@@ -514,8 +535,25 @@
     return groundY + dip * bowlDepth + Math.sin(x * 0.008) * 4;
   }
 
-  // Build the bowl from angled static segments
-  (function buildGround() {
+  // Track physics bodies so they can be removed on resize
+  let groundBodies = [];
+  let wallBodies = [];
+
+  // Build the bowl from angled static segments (callable on resize)
+  function buildGround() {
+    // Remove old bodies
+    for (const b of groundBodies) Composite.remove(engine.world, b);
+    for (const b of wallBodies) Composite.remove(engine.world, b);
+    groundBodies = []; wallBodies = [];
+
+    // Recompute bowl geometry for current canvas size
+    groundY = canvas.height * 0.78;
+    groundH = canvas.height * 0.22;
+    bowlDepth = Math.min(canvas.height * 0.14, groundH * 0.62);
+    // Landscape guard: short viewports get a minimum dip so stones still roll home
+    if (canvas.height < 500) bowlDepth = Math.max(bowlDepth, Math.min(60, canvas.height * 0.12));
+    bowlHalf = canvas.width * 0.23;
+
     const SEGS = 15;
     const pts = [];
     for (let i = 0; i <= SEGS; i++) {
@@ -532,8 +570,16 @@
         isStatic: true, friction: 0.9, label: 'ground', angle: ang
       });
       Composite.add(engine.world, seg);
+      groundBodies.push(seg);
     }
- })();
+
+    // Side walls
+    const wallL = Bodies.rectangle(-50, canvas.height / 2, 100, canvas.height * 2, { isStatic: true, friction: 0.3, label: 'wall' });
+    const wallR = Bodies.rectangle(canvas.width + 50, canvas.height / 2, 100, canvas.height * 2, { isStatic: true, friction: 0.3, label: 'wall' });
+    Composite.add(engine.world, [wallL, wallR]);
+    wallBodies.push(wallL, wallR);
+  }
+  buildGround();
 
   // ── Seasons — the world has its own calendar ──
   // Moss flourishes in spring, slumbers in winter. Stones weather fastest
@@ -547,10 +593,6 @@
   }
   let currentSeason = getSeason();
 
-  // Side walls
-  const wallL = Bodies.rectangle(-50, canvas.height / 2, 100, canvas.height * 2, { isStatic: true, friction: 0.3, label: 'wall' });
-  const wallR = Bodies.rectangle(canvas.width + 50, canvas.height / 2, 100, canvas.height * 2, { isStatic: true, friction: 0.3, label: 'wall' });
-  Composite.add(engine.world, [wallL, wallR]);
 
   // ── Ground crack lines (static, pre-generated) ──
   let groundCracks = [];
@@ -2387,12 +2429,18 @@
 
   let cachedStats = null; // Avoid re-fetching on every open
 
-  async function fetchStats() {
-    try {
-      const res = await fetch(POOL_API + '/stats');
-      if (!res.ok) return null;
-      return await res.json();
-    } catch (e) { return null; }
+  async function fetchStats(retries = 2) {
+    for (let attempt = 1; attempt <= retries; attempt++) {
+      try {
+        const res = await fetch(POOL_API + '/stats');
+        if (!res.ok) throw new Error('status ' + res.status);
+        return await res.json();
+      } catch (e) {
+        if (attempt === retries) return null;
+        await new Promise(r => setTimeout(r, 1000 * attempt)); // backoff: 1s, 2s
+      }
+    }
+    return null;
   }
 
   async function updateGateStats() {
@@ -2448,10 +2496,16 @@
 
   updateGateStats();
 
+  // Stats panel — debounce double-clicks and concurrent fetches
+  let statsLoading = false;
   // Open stats overlay when clicking gate stats
   gateStatsEl.addEventListener('click', async function() {
+    if (statsOverlay.classList.contains('open')) return; // already open
+    if (statsLoading) return; // in-flight — skip double-tap
     if (!cachedStats) {
+      statsLoading = true;
       cachedStats = await fetchStats();
+      statsLoading = false;
     }
     if (cachedStats) {
       renderStatsOverlay(cachedStats);
@@ -2467,6 +2521,12 @@
   statsOverlay.addEventListener('click', function(e) {
     if (e.target === statsOverlay) statsOverlay.classList.remove('open');
   });
+  // Close with Escape key
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && statsOverlay.classList.contains('open')) {
+      statsOverlay.classList.remove('open');
+    }
+  });
 
   // Gate floating dust particles
   const gateDust = [];
@@ -2481,6 +2541,8 @@
     });
   }
 
+  // Gate dust: stops when gate is hidden to avoid wasting CPU in the pile
+  let gateDustRafId = 0;
   function animateGateDust() {
     if (!gateEl.classList.contains('hidden')) {
       gateDustCtx.clearRect(0, 0, gateDustCanvas.width, gateDustCanvas.height);
@@ -2496,8 +2558,10 @@
         gateDustCtx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
         gateDustCtx.fill();
       }
+      gateDustRafId = requestAnimationFrame(animateGateDust);
+    } else {
+      gateDustRafId = 0; // stopped — will restart when gate reopens
     }
-    requestAnimationFrame(animateGateDust);
   }
   animateGateDust();
 
@@ -2562,6 +2626,17 @@
     }
   });
 
+  // ── Keyboard accessibility: Enter/Space triggers click on button-like divs ──
+  function addKeyTrigger(el) {
+    el.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); el.click(); }
+    });
+  }
+  addKeyTrigger(gateEnter);
+  addKeyTrigger(gateStatsEl);
+  addKeyTrigger(stoneCountEl);
+  addKeyTrigger(document.getElementById('commons-toggle'));
+
   // ── Persistence ──
   const STORAGE_KEY = 'stonepile_v3';
 
@@ -2594,8 +2669,11 @@
       const raw = localStorage.getItem(STORAGE_KEY);
       if (!raw) return;
       const data = JSON.parse(raw);
-      // Version check — bump this when storage format changes
-      if (data.v !== 5) { localStorage.removeItem(STORAGE_KEY); return; }
+      // Version check — warn on mismatch but try to load with best effort
+      if (data.v !== 5) {
+        console.warn('STONEPILE: saved data v' + data.v + ' (current v5), attempting load');
+        if (!data.stones || !data.stones.length) return;
+      }
       if (!data.stones || !data.stones.length) return;
       // Keep only the newest MAX_STONES
       const keep = data.stones.slice(-MAX_STONES);
@@ -2799,6 +2877,8 @@
       gateEl.style.display = '';
       gateEl.classList.remove('hidden');
       isActive = false;
+      // Restart dust animation if it stopped
+      if (gateDustRafId === 0) animateGateDust();
       history.pushState({ spAtGate: true }, '');
     }
   });
@@ -2864,6 +2944,7 @@
     gateDustCanvas.width = window.innerWidth;
     gateDustCanvas.height = window.innerHeight;
     initFrostCanvas();
+    buildGround();           // rebuild physics bowl for new canvas size
     generateGroundCracks();
   });
 
