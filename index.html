@@ -74,6 +74,14 @@
   }
   #gate .gate-stats:hover { color: #F0E8D8; }
 
+  #gate .gate-share {
+    position: absolute; bottom: 14px; left: 0; width: 100%;
+    color: #8A7C6A; font-size: 11px;
+    letter-spacing: 3px; text-align: center; cursor: pointer;
+    transition: color 0.6s ease; z-index: 2; user-select: none;
+  }
+  #gate .gate-share:hover { color: #C4B8A0; }
+
   /* Keyboard focus ring — subtle but visible for accessibility */
   *:focus-visible { outline: 2px solid rgba(200, 170, 130, 0.7); outline-offset: 3px; }
   #gate .enter:focus-visible { outline-color: rgba(220, 200, 160, 0.8); }
@@ -456,6 +464,7 @@
   <div class="verse">这里什么都没有<br>只有前人扔下的石头<br>每个人，都可以留下一块</div>
   <div class="enter" id="gate-enter" tabindex="0" role="button" aria-label="进入石堆">进 入</div>
   <div class="gate-stats" id="gate-stats" tabindex="0" role="button" aria-label="查看访客统计">正在计数...</div>
+  <div class="gate-share" id="gate-share" tabindex="0" role="button" aria-label="分享石堆链接">指 路</div>
 </div>
 
 <!-- Stats overlay — click gate stats to open -->
@@ -1162,6 +1171,18 @@
     ctx.save();
     ctx.translate(x, y);
     ctx.rotate(angle);
+
+    // Shared stone glow — a rubbing someone pointed you to
+    if (stone.highlightUntil && Date.now() < stone.highlightUntil) {
+      const elapsed = stone.highlightUntil - Date.now();
+      const alpha = Math.min(0.6, elapsed / 2000 * 0.6);
+      const glow = ctx.createRadialGradient(0, 0, r * 0.8, 0, 0, r * 2.2);
+      glow.addColorStop(0, `rgba(220,180,120,${alpha * 0.6})`);
+      glow.addColorStop(0.5, `rgba(200,160,100,${alpha * 0.3})`);
+      glow.addColorStop(1, 'rgba(180,140,80,0)');
+      ctx.fillStyle = glow;
+      ctx.beginPath(); ctx.arc(0, 0, r * 2.2, 0, Math.PI * 2); ctx.fill();
+    }
 
     // Stone silhouette path
     ctx.beginPath();
@@ -2219,6 +2240,14 @@
       }
     });
 
+    // One-time hint: pulse the "拓" button so users know they can share stones
+    if (!localStorage.getItem('stonepile-seen-rub')) {
+      localStorage.setItem('stonepile-seen-rub', '1');
+      shareEl.style.opacity = '0.9';
+      shareEl.style.color = '#D4C8B0';
+      setTimeout(() => { shareEl.style.opacity = ''; shareEl.style.color = ''; }, 3000);
+    }
+
     // "供" — give this stone to the commons. It sinks here, appears everywhere.
     const offerEl = panel.querySelector('.offer-stone');
     offerEl.addEventListener('click', async (e) => {
@@ -2528,6 +2557,33 @@
     }
   });
 
+  // Gate "指路" — copy site link, no tracking
+  const gateShareEl = document.getElementById('gate-share');
+  gateShareEl.addEventListener('click', function() {
+    const url = location.origin + location.pathname;
+    const done = () => {
+      gateShareEl.textContent = '已复制';
+      gateShareEl.style.color = '#D4C8B0';
+      setTimeout(() => {
+        gateShareEl.textContent = '指 路';
+        gateShareEl.style.color = '';
+      }, 1800);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(done).catch(() => {
+        const ta = document.createElement('textarea');
+        ta.value = url; document.body.appendChild(ta); ta.select();
+        try { document.execCommand('copy'); } catch (err) {}
+        ta.remove(); done();
+      });
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = url; document.body.appendChild(ta); ta.select();
+      try { document.execCommand('copy'); } catch (err) {}
+      ta.remove(); done();
+    }
+  });
+
   // Gate floating dust particles
   const gateDust = [];
   for (let i = 0; i < 50; i++) {
@@ -2616,11 +2672,14 @@
       document.getElementById('vignette').classList.add('show');
     }, 1000);
     if (!isDemo && !isReturning) {
-      addStone('你好', canvas.width * 0.35, groundY - 40, 0, 0.3, 0.02);
+      addStone('第一块', canvas.width * 0.35, groundY - 40, 0, 0.3, 0.02,
+        '这里是石堆。一个没有账号、没有点赞、没有算法的地方。只有前人扔下的石头。每个人都可以留下自己的。双击任何石头可以阅读里面的内容。');
       setTimeout(() => {
-        addStone('世界', canvas.width * 0.55, groundY - 90, 0.5, 0.2, -0.01);
+        addStone('轻与重', canvas.width * 0.55, groundY - 90, 0.5, 0.2, -0.01,
+          '石头有重量。内容越长、越沉，石头就越大越重。重的石头落在堆底，轻的浮在表面。用物理而不是算法来排序——这本身就是一种态度。');
         setTimeout(() => {
-          addStone('石堆', canvas.width * 0.48, groundY - 150, -0.3, 0.4, 0.03);
+          addStone('路', canvas.width * 0.48, groundY - 150, -0.3, 0.4, 0.03,
+            '你可以在石堆里拖拽任何石头。经常被走过的地面会磨得发亮，无人问津的角落会长满青苔。一切都在时间里变化，就像真实的世界。');
         }, 400);
       }, 400);
     }
@@ -2784,12 +2843,14 @@
     }
 
     const ancestors = [
-      { text: '渡', content: '所有人问你飞得高不高，很少有人问你飞得累不累。', daysAgo: 9 },
-      { text: '夜航', content: '凌晨三点写下的东西，都是白天不敢说的。', daysAgo: 7 },
-      { text: '石头记', content: '把最重的话，留给最沉默的东西。', daysAgo: 6 },
-      { text: '归', content: '走再远，最后都是回到自己。', daysAgo: 4 },
-      { text: '野', content: '风把话说完，就停了。', daysAgo: 3 },
-      { text: '拾', content: '你捡起的每块石头，都是别人放下的。', daysAgo: 2 }
+      { text: '渡', content: '所有人问你飞得高不高，很少有人问你飞得累不累。沉的东西，都是自己扛的。', daysAgo: 22 },
+      { text: '凌晨三点', content: '这个点醒着的人只有两种：还没睡的，和已经醒了的。但他们都看着同一片黑。', daysAgo: 19 },
+      { text: '石头记', content: '把最重的话，留给最沉默的东西。这是我来这个网站的理由。', daysAgo: 15 },
+      { text: '车站', content: '每次到站都不知道该往哪走。每条路看起来都一样，但走上去就不同了。', daysAgo: 12 },
+      { text: '野', content: '风把话说完就停了。剩下的事，就是你自己的了。', daysAgo: 10 },
+      { text: '归处', content: '走再远也是回到自己。这句话我花了十年才听懂。', daysAgo: 8 },
+      { text: '拾', content: '你捡起的每块石头，都是别人放下的。你放下的时候，也知道会有人来捡。', daysAgo: 5 },
+      { text: '一个想法', content: '我一直觉得互联网缺一个地方：没有评论区、没有点赞数、没有头像和个人简介。只是一个地方，让你知道别人来过。我觉得这就是那个地方。', daysAgo: 3 }
     ];
     ancestors.forEach((a, i) => {
       // Ancestors are the existing pile — they belong in the basin
@@ -2906,7 +2967,16 @@
         const ts = Number(data.ts);
         const shared = addStone(t, canvas.width / 2 + (Math.random() - 0.5) * 100, 70, 0, 0.5, 0, c);
         shared.createdAt = (ts > 946684800000 && ts < Date.now()) ? ts : Date.now();
+        shared.shared = true;             // mark as a received rubbing
+        shared.highlightUntil = Date.now() + 4000; // glow for 4 seconds
         saveStones();
+        // Brief toast — someone pointed you to this stone
+        const toast = document.createElement('div');
+        toast.style.cssText = 'position:fixed;bottom:120px;left:50%;transform:translateX(-50%);background:rgba(30,26,22,0.85);color:#D4C8B0;padding:10px 22px;border-radius:6px;font-size:13px;letter-spacing:1px;opacity:0;transition:opacity 0.6s;z-index:200;pointer-events:none;white-space:nowrap;';
+        toast.textContent = '有人指了这块石头给你';
+        document.body.appendChild(toast);
+        requestAnimationFrame(() => { toast.style.opacity = '1'; });
+        setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 600); }, 3500);
       }
     } catch (e) { /* malformed hash — ignore silently */ }
     history.replaceState(null, '', location.pathname);
