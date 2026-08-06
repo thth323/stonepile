@@ -145,6 +145,67 @@
   #stone-count.show { opacity: 0.7; }
   #stone-count:hover { color: #C4653A; }
 
+  /* Commons toggle — whisper of a door to the public pile */
+  #commons-toggle {
+    position: fixed; top: 44px; right: 32px;
+    color: #5C554D; font-size: 12px; z-index: 50;
+    opacity: 0; transition: opacity 0.6s ease;
+    letter-spacing: 1px; cursor: pointer; user-select: none;
+  }
+  #commons-toggle.show { opacity: 0.5; }
+  #commons-toggle:hover { opacity: 1; color: #C4653A; }
+
+  /* Commons panel — the place where offered stones gather */
+  #commons-panel {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(8,6,4,0.96);
+    z-index: 100; opacity: 0; pointer-events: none;
+    transition: opacity 0.4s ease;
+    display: flex; flex-direction: column; align-items: center;
+    padding: 60px 24px 80px;
+    overflow-y: auto;
+  }
+  #commons-panel.open { opacity: 1; pointer-events: auto; }
+  #commons-panel .commons-title {
+    font-size: 14px; letter-spacing: 3px; color: #6B6458;
+    margin-bottom: 32px;
+  }
+  #commons-panel .commons-close {
+    position: fixed; top: 24px; right: 32px;
+    color: #5C554D; font-size: 14px; cursor: pointer;
+    z-index: 101; letter-spacing: 1px;
+    transition: color 0.3s;
+  }
+  #commons-panel .commons-close:hover { color: #C4653A; }
+  .commons-stone {
+    width: 100%; max-width: 440px;
+    padding: 18px 24px; margin-bottom: 1px;
+    background: rgba(24,20,16,0.8);
+    border-left: 2px solid rgba(60,48,32,0.5);
+    transition: border-color 0.4s, background 0.4s;
+    cursor: default;
+  }
+  .commons-stone:hover {
+    border-left-color: #B08060;
+    background: rgba(30,24,18,0.9);
+  }
+  .commons-stone .cs-text {
+    font-size: 16px; color: #C4B8A0; letter-spacing: 1px;
+    margin-bottom: 6px; font-weight: 600;
+  }
+  .commons-stone .cs-body {
+    font-size: 13px; color: #7A7260; line-height: 1.8;
+    max-width: 380px;
+  }
+  .commons-stone .cs-age {
+    font-size: 11px; color: #4A4338; margin-top: 8px;
+    letter-spacing: 0.5px;
+  }
+  .commons-empty {
+    color: #4A4338; font-size: 14px; letter-spacing: 1px;
+    margin-top: 40px;
+  }
+
   /* Clear confirm toast */
   #clear-toast {
     position: fixed; top: 24px; right: 32px;
@@ -276,10 +337,17 @@
 </div>
 
 <div id="stone-count">石头：0</div>
+<div id="commons-toggle" class="show">公堆 ↵</div>
 <div id="clear-toast">
   <span>清空所有石头？</span>
   <button id="clear-yes">确认</button>
   <button id="clear-no">取消</button>
+</div>
+
+<div id="commons-panel">
+  <span class="commons-close">关闭</span>
+  <div class="commons-title">公 堆</div>
+  <div id="commons-list"></div>
 </div>
 
 <div id="input-bar">
@@ -2104,6 +2172,71 @@
     });
     saveStones();
   }
+
+  // ── Commons panel — the public pile, where offered stones gather ──
+  const commonsToggle = document.getElementById('commons-toggle');
+  const commonsPanel = document.getElementById('commons-panel');
+  const commonsList = document.getElementById('commons-list');
+  const commonsClose = commonsPanel.querySelector('.commons-close');
+  let commonsFetched = false;
+
+  function ageStr(ts) {
+    const d = (Date.now() - ts) / 86400000;
+    if (d < 1) return '几小时前';
+    if (d < 2) return '1 天前';
+    return Math.floor(d) + ' 天前';
+  }
+
+  async function fetchCommons() {
+    commonsList.innerHTML = '<div class="commons-empty">寻找石头……</div>';
+    let stones = null;
+    try {
+      const res = await fetch(POOL_API + '/pool', { cache: 'no-store' });
+      const data = await res.json();
+      if (data && Array.isArray(data.stones) && data.stones.length) stones = data.stones.slice(-20);
+    } catch (e) { /* Commons unreachable — use built-in ancestors */ }
+
+    if (!stones) {
+      // House stones as fallback
+      stones = [
+        { t: '渡', c: '所有人问你飞得高不高，很少有人问你飞得累不累。', ts: Date.now() - 9 * 86400000 },
+        { t: '夜航', c: '凌晨三点写下的东西，都是白天不敢说的。', ts: Date.now() - 7 * 86400000 },
+        { t: '石头记', c: '把最重的话，留给最沉默的东西。', ts: Date.now() - 6 * 86400000 },
+        { t: '归', c: '走再远，最后都是回到自己。', ts: Date.now() - 4 * 86400000 },
+        { t: '野', c: '风把话说完，就停了。', ts: Date.now() - 3 * 86400000 },
+        { t: '拾', c: '你捡起的每块石头，都是别人放下的。', ts: Date.now() - 2 * 86400000 }
+      ];
+    }
+
+    commonsList.innerHTML = '';
+    if (!stones.length) {
+      commonsList.innerHTML = '<div class="commons-empty">公堆里还没有石头。把你觉得值得的，供上来。</div>';
+      return;
+    }
+    stones.reverse().forEach(s => {
+      const d = document.createElement('div');
+      d.className = 'commons-stone';
+      d.innerHTML =
+        '<div class="cs-text">' + escapeHtml(String(s.t || '').trim().slice(0, 24)) + '</div>' +
+        '<div class="cs-body">' + escapeHtml(String(s.c || s.t || '').slice(0, 200)) + '</div>' +
+        '<div class="cs-age">' + ageStr(Number(s.ts) || Date.now()) + '</div>';
+      commonsList.appendChild(d);
+    });
+  }
+
+  commonsToggle.addEventListener('click', () => {
+    commonsPanel.classList.add('open');
+    if (!commonsFetched) { fetchCommons(); commonsFetched = true; }
+  });
+  commonsClose.addEventListener('click', () => { commonsPanel.classList.remove('open'); });
+  commonsPanel.addEventListener('click', (e) => { if (e.target === commonsPanel) commonsPanel.classList.remove('open'); });
+
+  // Keyboard close
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && commonsPanel.classList.contains('open')) {
+      commonsPanel.classList.remove('open');
+    }
+  });
 
   // ── Startup ──
   loadStones();
