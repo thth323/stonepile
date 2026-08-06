@@ -1169,7 +1169,14 @@
     const baseR = pc.r, baseG = pc.g, baseB = pc.b;
 
     ctx.save();
-    ctx.translate(x, y);
+    // Buried bump — tiny wobble when you try to open a buried stone
+    let bx = 0, by = 0;
+    if (stone._buriedBump && Date.now() < stone._buriedBump) {
+      const t = (Date.now() - (stone._buriedBump - 800)) / 800;
+      bx = Math.sin(t * Math.PI * 3) * 2.5 * (1 - t);
+      by = Math.cos(t * Math.PI * 2.5) * 1.5 * (1 - t);
+    }
+    ctx.translate(x + bx, y + by);
     ctx.rotate(angle);
 
     // Shared stone glow — a rubbing someone pointed you to
@@ -1182,6 +1189,18 @@
       glow.addColorStop(1, 'rgba(180,140,80,0)');
       ctx.fillStyle = glow;
       ctx.beginPath(); ctx.arc(0, 0, r * 2.2, 0, Math.PI * 2); ctx.fill();
+    }
+
+    // Blocker glow — the stone you need to drag away is briefly lit
+    if (stone._blockerGlow && Date.now() < stone._blockerGlow) {
+      const elapsed = stone._blockerGlow - Date.now();
+      const alpha = Math.min(0.7, elapsed / 2500 * 0.7);
+      const glow = ctx.createRadialGradient(0, 0, r * 0.9, 0, 0, r * 2.0);
+      glow.addColorStop(0, `rgba(255,230,180,${alpha * 0.4})`);
+      glow.addColorStop(0.5, `rgba(240,200,140,${alpha * 0.25})`);
+      glow.addColorStop(1, 'rgba(200,160,100,0)');
+      ctx.fillStyle = glow;
+      ctx.beginPath(); ctx.arc(0, 0, r * 2.0, 0, Math.PI * 2); ctx.fill();
     }
 
     // Stone silhouette path
@@ -2081,42 +2100,52 @@
   // Matter.js naturally piles stones. A stone hidden beneath others
   // is "buried" — you must move the stones above it to read it.
   // This is not a rule we enforce; it's a consequence of physics.
-  function isStoneBuried(stone) {
+  // Returns the stone or rubble that is blocking this stone, or null if visible.
+  function getBlockingStone(stone) {
     const sbody = stone.body;
     const sx = sbody.position.x;
     const sy = sbody.position.y;
     const sr = stone.radius || 25;
 
-    // Check real stones
+    // Check real stones — find the one directly above (smallest dy that still blocks)
+    let best = null, bestDy = Infinity;
     for (const s of stones) {
       if (s === stone) continue;
-      const dy = sy - s.body.position.y; // positive = other stone is above
+      const dy = sy - s.body.position.y;
       if (dy > sr * 0.6 && Math.abs(s.body.position.x - sx) < s.radius + sr - 4) {
-        return true;
+        if (dy < bestDy) { bestDy = dy; best = s; }
       }
     }
-    // Check rubble too — any rock on top blocks reading
+    if (best) return best;
+
+    // Check rubble too
     for (const r of rubble) {
       if (r === stone) continue;
       const rr = r.radius || 18;
       const dy = sy - r.body.position.y;
       if (dy > sr * 0.5 && Math.abs(r.body.position.x - sx) < rr + sr - 2) {
-        return true;
+        return r;
       }
     }
-    return false;
+    return null;
   }
+  function isStoneBuried(stone) { return !!getBlockingStone(stone); }
 
   function openContentPanel(stone) {
     closePanelForStone(stone);
 
     // Buried stones — you can see the stone but can't open it.
     // The panel appears briefly as a whisper: "it's under there."
-    if (!stone.isEmpty && stone.text && isStoneBuried(stone)) {
+    const blocker = getBlockingStone(stone);
+    if (!stone.isEmpty && stone.text && blocker) {
+      // Highlight the blocker so the user knows which one to drag
+      blocker._blockerGlow = Date.now() + 2500;
+      stone._buriedBump = Date.now() + 800;
+
       const panel = document.createElement('div');
       panel.className = 'content-panel light';
       panel.style.opacity = '0';
-      panel.innerHTML = `<div class="panel-close">×</div><div class="panel-body" style="color:#8a7060;text-align:center;padding:24px 0;font-size:15px;letter-spacing:2px;">被埋住了<div style="font-size:11px;opacity:0.5;margin-top:8px;letter-spacing:0;">搬开上面的石头</div></div>`;
+      panel.innerHTML = `<div class="panel-close">×</div><div class="panel-body" style="color:#8a7060;text-align:center;padding:24px 0;font-size:15px;letter-spacing:2px;">被埋住了<div style="font-size:11px;opacity:0.5;margin-top:8px;letter-spacing:0;">按住上面的石头拖开</div></div>`;
       document.body.appendChild(panel);
       panel.style.left = (stone.body.position.x - 110) + 'px';
       panel.style.top = (stone.body.position.y - stone.radius - 60) + 'px';
