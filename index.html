@@ -1706,6 +1706,13 @@
       const done = () => {
         shareEl.textContent = '已拓';
         setTimeout(() => { shareEl.textContent = '拓'; }, 1600);
+        // Whisper: the link is on your clipboard
+        const toast = document.createElement('div');
+        toast.style.cssText = 'position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:rgba(30,26,22,0.85);color:#C4B8A0;padding:10px 22px;border-radius:6px;font-size:13px;letter-spacing:0.5px;opacity:0;transition:opacity 0.5s;z-index:200;pointer-events:none;white-space:nowrap;';
+        toast.textContent = '链接已复制，可粘贴分享给朋友';
+        document.body.appendChild(toast);
+        requestAnimationFrame(() => { toast.style.opacity = '1'; });
+        setTimeout(() => { toast.style.opacity = '0'; setTimeout(() => toast.remove(), 500); }, 2500);
       };
       if (navigator.clipboard && navigator.clipboard.writeText) {
         navigator.clipboard.writeText(url).then(done).catch(() => {
