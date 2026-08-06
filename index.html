@@ -1793,11 +1793,12 @@
   // ── Content Panels (floating reading surfaces with physics) ──
   let panels = [];
 
-  // Browser back-button guard: popstate fires AFTER the browser has already
-  // moved back in history and cannot be cancelled. To intercept: (1) push an
-  // overlay state when panels open, (2) in popstate, close overlays then
-  // re-push to prevent the browser from leaving. The real "back to previous
-  // site" only happens when the user clicks back with no overlays open.
+  // Browser back-button guard. Strategy: when overlays are open, push a
+  // history state so the back button pops it. In popstate we check whether
+  // ANY overlay is currently open (not the state object) because e.state is
+  // the *target* entry, not the one we left. If overlays are open we close
+  // them and re-push a guard state so the browser stays on the page.
+  // Only when overlays are already closed do we let the browser leave.
   function pushOverlayState() {
     history.pushState({ spOverlay: true }, '');
   }
@@ -1805,6 +1806,11 @@
     while (panels.length > 0) removePanel(panels[panels.length - 1]);
     if (commonsPanel && commonsPanel.classList.contains('open')) commonsPanel.classList.remove('open');
     if (clearToast) clearToast.classList.remove('show');
+  }
+  function hasOpenOverlay() {
+    return panels.length > 0 ||
+      (commonsPanel && commonsPanel.classList.contains('open')) ||
+      (clearToast && clearToast.classList.contains('show'));
   }
 
   function openContentPanel(stone) {
@@ -2376,20 +2382,22 @@
   });
 
   // Browser back button closes overlays before leaving the page.
-  // popstate fires AFTER the history entry has been popped — we can't
-  // prevent the navigation, but we can shove a new state in so the
-  // browser stays on the current page. Without this, closing the panel
-  // in popstate is useless: the browser already left.
+  // popstate fires AFTER the history entry has been popped — the browser
+  // has already moved. We can't cancel it, but if overlays are still open
+  // we close them and push a new guard state so the browser stays here.
+  // Only when no overlay is open do we let the browser continue back.
   window.addEventListener('popstate', (e) => {
-    if (e.state && e.state.spOverlay) {
+    if (hasOpenOverlay()) {
       closeAllOverlays();
-      // Re-push a clean state so the next real "back" goes to the
-      // previous site (or browser home) instead of leaving immediately.
-      history.pushState({ spBase: true }, '');
+      // Push a guard state to keep the browser on this page.
+      // The next back will pop this guard, see no overlays, and leave.
+      history.pushState({ spGuard: true }, '');
     }
   });
 
   // ── Startup ──
+  // Mark the initial page load in history so popstate has a reference point.
+  history.replaceState({ spRoot: true }, '');
   loadStones();
   // First visit: the pile should already have history (unless user cleared it before)
   if (stoneCount === 0 && !localStorage.getItem('stonepile-seeded')) {
