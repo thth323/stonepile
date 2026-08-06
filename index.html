@@ -1697,7 +1697,7 @@
     });
 
     // "拓" — make a rubbing of this stone to share (encode into URL, no backend)
-    const shareEl = panel.querySelector('.share-rub');
+    const shareEl = panel.querySelector('.share-rub:not(.offer-stone)');
     shareEl.addEventListener('click', (e) => {
       e.stopPropagation();
       const data = { t: stone.text, c: stone.content, ts: stone.createdAt };
