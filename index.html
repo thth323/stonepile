@@ -324,6 +324,30 @@
     opacity: 0; transition: opacity 1.5s ease;
   }
   #vignette.show { opacity: 1; }
+
+  /* Warmth overlay — the pile remembers you were here */
+  #warmth-overlay {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none; z-index: 59;
+    background: radial-gradient(ellipse at 50% 70%, rgba(200,138,96,0.18), transparent 60%);
+    opacity: 0; transition: opacity 3s ease-out;
+  }
+  #warmth-overlay.warm { opacity: 1; }
+
+  /* Snapshot canvas — a memory of what the pile looked like */
+  #snapshot-canvas {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none; z-index: 57;
+    opacity: 0; transition: opacity 1.2s ease-out;
+  }
+  #snapshot-canvas.flash { opacity: 1; }
+
+  /* Frost veil — when no one has been here in a while */
+  #frost-veil {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    pointer-events: none; z-index: 56;
+    opacity: 0; transition: opacity 4s ease;
+  }
 </style>
 </head>
 <body>
@@ -359,6 +383,9 @@
 </div>
 <div id="ready-indicator"></div>
 <div id="vignette"></div>
+<div id="warmth-overlay"></div>
+<canvas id="snapshot-canvas"></canvas>
+<canvas id="frost-veil"></canvas>
 
 <script>
   const { Engine, Runner, Bodies, Body, Composite, Events, Vector } = Matter;
@@ -500,6 +527,70 @@
       if (p.y < -20) p.y = canvas.height + 20;
       if (p.y > canvas.height + 20) p.y = -20;
     }
+  }
+
+  // ── Environment state — "how alive is this place?" ──
+  let envState = { dormant: true, recent: false, activeCount: 0, lastPulse: 0 };
+  const frostCanvas = document.getElementById('frost-veil');
+  const frostCtx = frostCanvas.getContext('2d');
+  let frostParticles = [];
+  const FROST_COUNT = 50;
+
+  function initFrostCanvas() {
+    frostCanvas.width = window.innerWidth;
+    frostCanvas.height = window.innerHeight;
+    frostParticles = [];
+    for (let i = 0; i < FROST_COUNT; i++) {
+      frostParticles.push({
+        x: Math.random() * frostCanvas.width,
+        y: Math.random() * frostCanvas.height,
+        r: 1 + Math.random() * 3,
+        opacity: 0.3 + Math.random() * 0.5,
+        phase: Math.random() * Math.PI * 2,
+        speed: 0.0003 + Math.random() * 0.0005
+      });
+    }
+  }
+  initFrostCanvas();
+
+  function drawFrost() {
+    frostCtx.clearRect(0, 0, frostCanvas.width, frostCanvas.height);
+    if (!envState.dormant) return; // Frost only when truly dormant
+    const now = Date.now() * 0.001;
+    for (const fp of frostParticles) {
+      const flicker = 0.7 + 0.3 * Math.sin(now * fp.speed * 10 + fp.phase);
+      const alpha = fp.opacity * flicker;
+      frostCtx.fillStyle = `rgba(200,210,225,${alpha})`;
+      frostCtx.beginPath();
+      // Hexagonal frost crystals
+      const cx = fp.x, cy = fp.y;
+      for (let k = 0; k < 6; k++) {
+        const a = (k / 6) * Math.PI * 2 + fp.phase;
+        const len = fp.r * (1 + 0.4 * Math.sin(now + k));
+        frostCtx.lineTo(cx + Math.cos(a) * len, cy + Math.sin(a) * len);
+      }
+      frostCtx.closePath();
+      frostCtx.fill();
+    }
+  }
+
+  async function fetchEnvState() {
+    try {
+      const res = await fetch(POOL_API + '/active');
+      if (res.ok) {
+        const data = await res.json();
+        envState = {
+          dormant: !!data.dormant,
+          recent: !!data.recent,
+          activeCount: data.activeCount || 0,
+          lastPulse: data.lastPulse || 0
+        };
+      }
+    } catch (e) { /* offline — use default dormant state */ }
+  }
+
+  function sendPulse() {
+    fetch(POOL_API + '/pulse', { method: 'GET' }).catch(() => {});
   }
 
   // ── Impact dust burst ──
@@ -1303,8 +1394,10 @@
     // 4. DUST PARTICLES (ambient float)
     // ═══════════════════════════════════════════
     updateDust();
+    const dustBoost = envState.recent ? 1.6 : 1; // More dust when pile is "awake"
     for (const p of dustParticles) {
-      ctx.fillStyle = `rgba(180,160,140,${p.opacity})`;
+      const boostedOpacity = p.opacity * dustBoost;
+      ctx.fillStyle = `rgba(180,160,140,${boostedOpacity})`;
       ctx.beginPath();
       ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
       ctx.fill();
@@ -1520,6 +1613,17 @@
     vignetteGrad.addColorStop(1, 'rgba(0,0,0,0.28)');
     ctx.fillStyle = vignetteGrad;
     ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // ═══════════════════════════════════════════
+    // 10.5. FROST — dormant environment breathes ice
+    // ═══════════════════════════════════════════
+    if (envState.dormant) {
+      drawFrost();
+      const frostAlpha = 0.25;
+      frostCtx.canvas.style.opacity = frostAlpha;
+    } else {
+      frostCtx.canvas.style.opacity = '0';
+    }
 
     // Content panels physics
     updatePanels();
@@ -2001,6 +2105,16 @@
     gateEl.classList.add('hidden');
     localStorage.setItem('stonepile-entered', '1');
     ensureAudio(); // Unlock audio on first user gesture
+    // Fetch environment state and start pulsing
+    fetchEnvState().then(() => { if (!envState.dormant) sendPulse(); });
+    // Warmth overlay — the pile remembers you
+    const savedWarmth = parseFloat(localStorage.getItem('stonepile-lastWarmth')) || 0;
+    if (savedWarmth > 0.05) {
+      const overlay = document.getElementById('warmth-overlay');
+      overlay.style.opacity = Math.min(0.6, savedWarmth * 0.8);
+      setTimeout(() => { overlay.style.opacity = '0'; }, 300);
+      setTimeout(() => { overlay.classList.remove('warm'); }, 3300);
+    }
     setTimeout(() => {
       isActive = true;
       inputBar.classList.add('visible');
@@ -2039,6 +2153,11 @@
       v: 5, stones: data, wear: wearMarks.slice(-MAX_WEAR), count: stoneCount,
       moss: mossData, trail: trailMarks.slice(-MAX_TRAIL)
     }));
+    // Remember the pile's warmth — on return, a warm glow greets you
+    const avgWarmth = stones.length > 0
+      ? stones.reduce((sum, s) => sum + (s.warmth || 0), 0) / stones.length
+      : 0;
+    localStorage.setItem('stonepile-lastWarmth', String(Math.min(avgWarmth, 0.75)));
   }
 
   function loadStones() {
@@ -2102,6 +2221,10 @@
   }
 
   setInterval(() => { if (isActive && stones.length) saveStones(); }, 3000);
+  // Pulse heartbeat — tell the world "someone is here"
+  setInterval(() => { if (isActive) sendPulse(); }, 120000); // every 2 min
+  // Refresh environment state periodically
+  setInterval(() => { if (isActive) fetchEnvState(); }, 300000); // every 5 min
 
   // ── Demo mode ──
   if (isDemo) {
@@ -2272,6 +2395,39 @@
     inputVisible = true;
     document.getElementById('stone-count').classList.add('show');
     document.getElementById('vignette').classList.add('show');
+    // Returning visitor — fetch environment, send pulse, apply remembered warmth
+    fetchEnvState().then(() => {
+      if (!envState.dormant) sendPulse();
+      // Recent activity shadow — a subtle flicker at the edge of vision
+      if (envState.recent) {
+        setTimeout(() => {
+          const shadow = document.getElementById('vignette');
+          shadow.style.boxShadow = 'inset 0 0 120px 40px rgba(200,160,110,0.08)';
+          setTimeout(() => { shadow.style.boxShadow = ''; }, 2000);
+        }, 1200);
+      }
+    });
+    const savedWarmth = parseFloat(localStorage.getItem('stonepile-lastWarmth')) || 0;
+    if (savedWarmth > 0.05) {
+      const overlay = document.getElementById('warmth-overlay');
+      overlay.style.opacity = Math.min(0.5, savedWarmth * 0.7);
+      setTimeout(() => { overlay.style.opacity = '0'; }, 200);
+    }
+    // Snapshot — show the pile as you last saw it, then wake up
+    const snapData = localStorage.getItem('stonepile-snapshot');
+    if (snapData) {
+      const snapCanvas = document.getElementById('snapshot-canvas');
+      snapCanvas.width = window.innerWidth;
+      snapCanvas.height = window.innerHeight;
+      const snapImg = new Image();
+      snapImg.onload = () => {
+        const sctx = snapCanvas.getContext('2d');
+        sctx.drawImage(snapImg, 0, 0, snapCanvas.width, snapCanvas.height);
+        snapCanvas.classList.add('flash');
+        setTimeout(() => { snapCanvas.classList.remove('flash'); }, 1200);
+      };
+      snapImg.src = snapData;
+    }
   }
 
   // ── Clear pile ──
@@ -2304,11 +2460,23 @@
     canvas.height = window.innerHeight;
     gateDustCanvas.width = window.innerWidth;
     gateDustCanvas.height = window.innerHeight;
+    initFrostCanvas();
     generateGroundCracks();
   });
 
   renderFrame();
-  window.addEventListener('beforeunload', saveStones);
+  window.addEventListener('beforeunload', () => {
+    saveStones();
+    // Save a memory snapshot — the pile as you last saw it
+    try {
+      const snapCanvas = document.createElement('canvas');
+      snapCanvas.width = Math.min(canvas.width, 400);
+      snapCanvas.height = Math.min(canvas.height, 300);
+      const snapCtx = snapCanvas.getContext('2d');
+      snapCtx.drawImage(canvas, 0, 0, snapCanvas.width, snapCanvas.height);
+      localStorage.setItem('stonepile-snapshot', snapCanvas.toDataURL('image/jpeg', 0.3));
+    } catch (e) { /* localStorage full — skip */ }
+  });
 </script>
 </body>
 </html>
