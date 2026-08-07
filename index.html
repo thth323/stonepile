@@ -2513,7 +2513,10 @@
   async function fetchStats(retries = 2) {
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
-        const res = await fetch(POOL_API + '/stats');
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 5000); // 5s timeout
+        const res = await fetch(POOL_API + '/stats', { signal: ctrl.signal });
+        clearTimeout(timer);
         if (!res.ok) throw new Error('status ' + res.status);
         return await res.json();
       } catch (e) {
