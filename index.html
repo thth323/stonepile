@@ -506,7 +506,39 @@
 <canvas id="frost-veil"></canvas>
 
 <script>
+  // ── Load guard: if Matter.js fails, show why instead of a black screen ──
+  if (typeof Matter === 'undefined') {
+    const err = document.createElement('div');
+    err.style.cssText = 'position:fixed;inset:0;background:#0E0C0A;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:14px;z-index:9999;font-family:"PingFang SC",system-ui,sans-serif;';
+    err.innerHTML = '<div style="color:#D4C8B0;font-size:18px;letter-spacing:6px;">加载失败</div><div style="color:#8A7C6A;font-size:13px;letter-spacing:1px;">物理引擎未加载，请刷新或检查网络</div>';
+    document.body.appendChild(err);
+    throw new Error('Matter.js not loaded');
+  }
   const { Engine, Runner, Bodies, Body, Composite, Events, Vector } = Matter;
+
+  // ── Global error surface — show JS errors on screen so users can report them ──
+  window.addEventListener('error', function(e) {
+    let el = document.getElementById('js-error-banner');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'js-error-banner';
+      el.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);background:rgba(180,60,40,0.92);color:#f0e8d8;padding:10px 18px;border-radius:2px;font-size:12px;z-index:9999;letter-spacing:1px;white-space:pre-wrap;max-width:90vw;pointer-events:auto;cursor:pointer;';
+      el.onclick = () => el.remove();
+      document.body.appendChild(el);
+    }
+    el.textContent = (e.message || 'JS Error') + '  (点击关闭)';
+  });
+  window.addEventListener('unhandledrejection', function(e) {
+    let el = document.getElementById('js-error-banner');
+    if (!el) {
+      el = document.createElement('div');
+      el.id = 'js-error-banner';
+      el.style.cssText = 'position:fixed;top:12px;left:50%;transform:translateX(-50%);background:rgba(180,60,40,0.92);color:#f0e8d8;padding:10px 18px;border-radius:2px;font-size:12px;z-index:9999;letter-spacing:1px;white-space:pre-wrap;max-width:90vw;pointer-events:auto;cursor:pointer;';
+      el.onclick = () => el.remove();
+      document.body.appendChild(el);
+    }
+    el.textContent = (e.reason && e.reason.message ? e.reason.message : 'Promise Error') + '  (点击关闭)';
+  });
 
   // ── State ──
   const isDemo = new URLSearchParams(location.search).has('demo');
