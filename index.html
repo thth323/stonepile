@@ -2528,6 +2528,7 @@
   const gateEl = document.getElementById('gate');
   const gateEnter = document.getElementById('gate-enter');
   const gateStatsEl = document.getElementById('gate-stats');
+  const stoneCountEl = document.getElementById('stone-count');
   const gateDustCanvas = document.getElementById('gate-dust');
   const gateDustCtx = gateDustCanvas.getContext('2d');
   gateDustCanvas.width = window.innerWidth;
@@ -3085,7 +3086,6 @@
   // Everyone sees the gate on every visit — the gate IS the home page.
 
   // ── Clear pile ──
-  const stoneCountEl = document.getElementById('stone-count');
   const clearToast = document.getElementById('clear-toast');
   stoneCountEl.addEventListener('click', () => {
     if (stoneCount > 0) { clearToast.classList.add('show'); pushOverlayState(); }
